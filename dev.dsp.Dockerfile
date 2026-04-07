@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 # Set your runtime image (override with --build-arg)
-ARG DSP_IMAGE=localhost:5000/virtru/data-security-platform:v2.7.1
+ARG DSP_IMAGE=localhost:5000/virtru/data-security-platform:v2.7.8
 
 # ---------- prep stage: build CA bundle & stage files ----------
 FROM alpine:latest AS prep

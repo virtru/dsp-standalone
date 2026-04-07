@@ -15,10 +15,31 @@ Runs the Virtru Data Security Platform (DSP) as a self-contained Docker Compose 
 
 ## Prerequisites
 
-### 1. Docker
+### 1. Tools
+
+You will need to assume the admin role on your machine to install most of these.  You can use the Privileges app to do so.
+- **Docker**
 
 Docker Engine ≥ 24 with Docker Compose v2.
 OrbStack, Rancher Desktop, Colima, or Docker Desktop all work.
+
+- **homebrew**
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+- **mkcrt with local certificate authority (CA)**
+
+```bash
+brew install mkcert && mkcert -install
+```
+
+- **cosign**
+
+```bash
+brew install cosign
+```
 
 ### 2. /etc/hosts entry
 
@@ -51,38 +72,20 @@ dsp-keys/
 Run the following from the `DSP-standalone/` directory to generate all keys:
 
 ```bash
-# 1. Install mkcert if needed
-brew install mkcert && mkcert -install
+/bin/bash key-setup.sh
 
-# 2. TLS certificate for Keycloak and DSP (port 18443 / 8080)
-mkcert \
-  -cert-file dsp-keys/local-dsp.virtru.com.pem \
-  -key-file  dsp-keys/local-dsp.virtru.com.key.pem \
-  local-dsp.virtru.com "*.local-dsp.virtru.com" localhost
-
-# 3. KAS RSA key pair
-openssl req -x509 -nodes -newkey RSA:2048 -subj "/CN=kas" \
-  -keyout dsp-keys/kas-private.pem -out dsp-keys/kas-cert.pem -days 365
-
-# 4. KAS EC key pair
-openssl ecparam -name prime256v1 > dsp-keys/ecparams.tmp
-openssl req -x509 -nodes -newkey ec:dsp-keys/ecparams.tmp -subj "/CN=kas" \
-  -keyout dsp-keys/kas-ec-private.pem -out dsp-keys/kas-ec-cert.pem -days 365
-rm dsp-keys/ecparams.tmp
-
-# 5. Policy import/export signing keys (requires cosign CLI)
-brew install cosign
-mkdir -p dsp-keys/policyimportexport
-COSIGN_PASSWORD=changeme cosign generate-key-pair \
-  --output-key-prefix dsp-keys/policyimportexport/cosign
-printf '%s' 'changeme' > dsp-keys/policyimportexport/cosign.pass
-
-# 6. Encrypted search key (32-byte hex value used by the SharePoint PEP - this is a dummy placeholder file)
-printf '%s' '49e9a28af998c2678e6651ad4e60a2dbba2f3d284f58b224b3382919c1de7d55' \
-  > dsp-keys/encrypted-search.key
 ```
 
-### 4. DSP image in the local registry
+### 4. Download the DSP bundle if you don't already have it
+
+Get the Virtru Data Security Platform (air-gapped bundle) here:
+
+https://secure.virtru.com/download
+
+- Expand the download and extract the appropriate bundle for your platform from /toos/dsp. 
+- Copy the oci-artifact folder from the air-gap bundle into the dsp bundle folder
+
+### 5. Copy DSP images into the local registry
 
 The `dev.dsp.Dockerfile` builds on top of the proprietary DSP image.
 It must be loaded into a local Docker registry on port 5000.
@@ -91,7 +94,7 @@ It must be loaded into a local Docker registry on port 5000.
 # Start the local registry (once)
 docker run -d --restart=always -p 5000:5000 --name registry registry:2
 
-# Load DSP images from the bundle (run from the bundle root)
+# Load DSP images from the bundle (run from the dsp bundle root)
 ./dsp copy-images --insecure localhost:5000/virtru
 
 # Verify
@@ -182,7 +185,8 @@ virtru-dsp-only-dsp-provision-federal-policy-1 Exited (0)
 ### 2. DSP health endpoint
 
 ```bash
-curl -fks https://local-dsp.virtru.com:8080/healthz
+
+
 ```
 
 Expected: HTTP 200 with a JSON body similar to:
