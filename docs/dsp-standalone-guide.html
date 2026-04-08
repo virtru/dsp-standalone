@@ -1,0 +1,1196 @@
+<!-- DSP-Standalone Guide | Generated: 2026-04-08 18:29:21 UTC | Regenerate with: "please update docs/dsp-standalone-guide.html" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSP-Standalone Guide</title>
+<style>
+:root {
+  --bg: #f8f9fa;
+  --sidebar-bg: #1a2332;
+  --sidebar-text: #c8d6e5;
+  --sidebar-active: #4da6ff;
+  --card-bg: #fff;
+  --text: #2d3436;
+  --text-muted: #636e72;
+  --accent: #0066cc;
+  --accent-light: #e8f4fd;
+  --border: #dfe6e9;
+  --code-bg: #f1f3f5;
+  --code-text: #d63384;
+  --tag-bg: #e3f2fd;
+  --tag-text: #1565c0;
+  --warn-bg: #fff3cd;
+  --warn-text: #856404;
+  --success-bg: #d4edda;
+  --success-text: #155724;
+  --topbar-h: 56px;
+  --sidebar-w: 280px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+/* Top bar */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h); z-index: 100;
+  background: var(--sidebar-bg); color: #fff; display: flex; align-items: center; padding: 0 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
+.topbar h1 { font-size: 16px; font-weight: 600; white-space: nowrap; line-height: 1.2; }
+.topbar h1 span { color: var(--sidebar-active); }
+.topbar h1 .updated { display: block; font-size: 10px; font-weight: 400; color: #8899aa; }
+.topbar .search { margin-left: 32px; flex: 1; max-width: 400px; }
+.topbar .search input {
+  width: 100%; padding: 6px 12px; border-radius: 6px; border: 1px solid #3d5a80;
+  background: #223344; color: #fff; font-size: 13px; outline: none;
+}
+.topbar .search input::placeholder { color: #8899aa; }
+.topbar .search input:focus { border-color: var(--sidebar-active); }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--sidebar-w);
+  background: var(--sidebar-bg); overflow-y: auto; padding: 16px 0; z-index: 50;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: #3d5a80; border-radius: 2px; }
+.sidebar a {
+  display: block; padding: 6px 20px; color: var(--sidebar-text); text-decoration: none;
+  font-size: 13px; border-left: 3px solid transparent; transition: all .2s;
+}
+.sidebar a:hover { color: #fff; background: rgba(255,255,255,.05); }
+.sidebar a.active { color: var(--sidebar-active); border-left-color: var(--sidebar-active); background: rgba(77,166,255,.08); font-weight: 600; }
+.sidebar .nav-group { padding: 12px 20px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #5a7a9a; }
+
+/* Main */
+main {
+  margin-left: var(--sidebar-w); margin-top: var(--topbar-h); padding: 32px 40px 80px;
+  max-width: 960px;
+}
+section { margin-bottom: 48px; scroll-margin-top: calc(var(--topbar-h) + 16px); }
+section.hidden { display: none; }
+h2 { font-size: 24px; font-weight: 700; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid var(--accent); color: var(--accent); }
+h3 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; color: var(--text); }
+h4 { font-size: 14px; font-weight: 600; margin: 12px 0 4px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+p { margin-bottom: 12px; }
+ul, ol { margin: 0 0 12px 20px; }
+li { margin-bottom: 4px; }
+
+/* Cards */
+.card {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 12px; overflow: hidden; transition: box-shadow .2s;
+}
+.card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+.card-header {
+  padding: 12px 16px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  font-weight: 600; font-size: 15px; user-select: none;
+}
+.card-header .arrow { transition: transform .2s; font-size: 12px; color: var(--text-muted); }
+.card.open .card-header .arrow { transform: rotate(90deg); }
+.card-header .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--tag-bg); color: var(--tag-text); font-weight: 500; }
+.card-body { padding: 0 16px 16px; display: none; font-size: 14px; }
+.card.open .card-body { display: block; }
+
+/* Code */
+code { background: var(--code-bg); color: var(--code-text); padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, monospace; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; overflow-x: auto; margin: 8px 0 16px; font-size: 13px; line-height: 1.5; font-family: 'SF Mono', Menlo, monospace; }
+pre code { background: none; color: var(--text); padding: 0; }
+
+/* Callout */
+.callout { padding: 12px 16px; border-radius: 6px; margin: 12px 0; font-size: 14px; }
+.callout.warn { background: var(--warn-bg); color: var(--warn-text); border-left: 4px solid #ffc107; }
+.callout.info { background: var(--accent-light); color: var(--accent); border-left: 4px solid var(--accent); }
+.callout.success { background: var(--success-bg); color: var(--success-text); border-left: 4px solid #28a745; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 14px; }
+th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+th { background: var(--code-bg); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+
+/* SVG diagram */
+.diagram { margin: 16px 0; overflow-x: auto; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+/* Flow steps */
+.flow-step { display: flex; gap: 12px; margin-bottom: 8px; align-items: flex-start; }
+.flow-num { min-width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.flow-content { padding-top: 3px; }
+
+/* File tree */
+.tree { font-family: 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.8; }
+.tree details { margin-left: 16px; }
+.tree summary { cursor: pointer; list-style: none; color: var(--accent); font-weight: 600; }
+.tree summary::-webkit-details-marker { display: none; }
+.tree summary::before { content: '\25B6 '; font-size: 10px; color: var(--text-muted); }
+.tree details[open] > summary::before { content: '\25BC '; }
+.tree .file { color: var(--text-muted); margin-left: 16px; }
+.tree .desc { color: #999; font-style: italic; margin-left: 8px; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  main { margin-left: 0; padding: 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <h1><span>DSP-Standalone</span> Guide<span class="updated">Updated 2026-04-08 18:29:21 UTC</span></h1>
+  <div class="search"><input type="text" id="search" placeholder="Search sections..."></div>
+</div>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="nav-group">Getting Started</div>
+  <a href="#overview">Overview</a>
+  <a href="#platforms">Supported Platforms</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#quickstart">Quick Start (Automated)</a>
+  <a href="#troubleshooting">Troubleshooting</a>
+
+  <div class="nav-group">Validation &amp; Testing</div>
+  <a href="#validation">Validation</a>
+  <a href="#sdk">SDK Examples</a>
+
+  <div class="nav-group">Operations</div>
+  <a href="#users">Users &amp; Credentials</a>
+  <a href="#managing-users">Managing Users</a>
+  <a href="#managing-attrs">Managing Attributes</a>
+
+  <div class="nav-group">Deep Dive</div>
+  <a href="#abac">Access Control (ABAC)</a>
+  <a href="#config">Configuration Files</a>
+
+  <div class="nav-group">Reference</div>
+  <a href="#manual">Manual Setup</a>
+</nav>
+
+<!-- Main Content -->
+<main>
+
+<!-- ============================================================ -->
+<!-- SECTION: Overview -->
+<!-- ============================================================ -->
+<section id="overview">
+<h2>Overview</h2>
+<p>Runs the Virtru Data Security Platform (DSP) as a self-contained Docker Compose stack &mdash; no Kubernetes or bulk data ingestion. Intended to support local SDK development and testing.</p>
+
+<div class="callout warn"><strong>Local dev only.</strong> This setup uses default usernames and credentials and should not be used for any purpose beyond local integration development and testing.</div>
+
+<h3>Services</h3>
+<table>
+  <tr><th>Service</th><th>Image</th><th>Port(s)</th><th>Role</th></tr>
+  <tr><td><code>keycloak-db</code></td><td>postgres:16</td><td>25434</td><td>Keycloak's Postgres database</td></tr>
+  <tr><td><code>keycloak</code></td><td>keycloak/keycloak:25.0</td><td>18443 (HTTPS), 8888 (HTTP health)</td><td>Identity Provider (OIDC)</td></tr>
+  <tr><td><code>dsp-keycloak-provisioning</code></td><td>built from dev.dsp.Dockerfile</td><td>&mdash;</td><td>One-shot: provisions realm, clients, and users</td></tr>
+  <tr><td><code>dsp-db</code></td><td>postgres:16</td><td>35433</td><td>DSP's Postgres database</td></tr>
+  <tr><td><code>dsp</code></td><td>built from dev.dsp.Dockerfile</td><td>8080</td><td>DSP services (KAS, policy, authz, entity resolution)</td></tr>
+  <tr><td><code>dsp-provision-federal-policy</code></td><td>built from dev.dsp.Dockerfile</td><td>&mdash;</td><td>One-shot: loads the federal attribute policy</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Supported Platforms -->
+<!-- ============================================================ -->
+<section id="platforms">
+<h2>Supported Platforms</h2>
+
+<table>
+  <tr><th>Platform</th><th>Status</th></tr>
+  <tr><td>macOS (Intel + Apple Silicon)</td><td>Supported</td></tr>
+  <tr><td>Ubuntu 24.04 LTS (amd64 + arm64)</td><td><strong>Experimental</strong></td></tr>
+  <tr><td>Red Hat Enterprise Linux 8 (amd64 + arm64)</td><td><strong>Experimental</strong></td></tr>
+  <tr><td>Other Linux distributions</td><td>Not currently supported</td></tr>
+  <tr><td>Windows</td><td>Not currently supported</td></tr>
+</table>
+
+<div class="callout warn"><strong>Experimental Linux support:</strong> Ubuntu 24.04 LTS and RHEL 8 installs are functional but have not been fully validated across all hardware and environment configurations.</div>
+
+<h3>macOS Docker Runtime</h3>
+<p><strong>OrbStack is the recommended Docker runtime on macOS.</strong> It provides native host networking, built-in Rosetta emulation for linux/amd64 images on Apple Silicon, and faster startup.</p>
+
+<table>
+  <tr><th>Runtime</th><th>Recommended</th><th>Notes</th></tr>
+  <tr><td>OrbStack</td><td><strong>Yes (recommended)</strong></td><td>Native host networking, built-in Rosetta, fastest performance</td></tr>
+  <tr><td>Docker Desktop</td><td>With caveats</td><td>Requires Rosetta enabled manually; host networking less reliable</td></tr>
+  <tr><td>Rancher Desktop</td><td>Not tested</td><td>&mdash;</td></tr>
+  <tr><td>Colima</td><td>Not tested</td><td>&mdash;</td></tr>
+</table>
+
+<div class="callout info"><strong>Docker Desktop on Apple Silicon:</strong> Enable Rosetta: Docker Desktop &rarr; Settings &rarr; General &rarr; "Use Rosetta for x86/amd64 emulation on Apple Silicon". Without it, DSP images run under QEMU and will be significantly slower.</div>
+
+<div class="callout warn"><strong>macOS AirPlay Receiver (port 5000):</strong> macOS Monterey+ runs an AirPlay Receiver on port 5000 which conflicts with the local Docker registry. Disable it: System Settings &rarr; General &rarr; AirDrop &amp; Handoff &rarr; turn off "AirPlay Receiver".</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Architecture -->
+<!-- ============================================================ -->
+<section id="architecture">
+<h2>Architecture</h2>
+
+<div class="diagram">
+<svg viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg">
+  <!-- Bridge Network group -->
+  <rect x="10" y="40" width="230" height="460" rx="12" fill="none" stroke="#5a7a9a" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="20" y="28" font-size="11" fill="#5a7a9a" font-weight="600">BRIDGE NETWORK (port-mapped)</text>
+
+  <!-- Host Network group -->
+  <rect x="270" y="40" width="540" height="460" rx="12" fill="none" stroke="#5a7a9a" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="280" y="28" font-size="11" fill="#5a7a9a" font-weight="600">HOST NETWORK (network_mode: host)</text>
+
+  <!-- keycloak-db -->
+  <rect x="40" y="80" width="170" height="80" rx="8" fill="#e8f0fe" stroke="#4285f4" stroke-width="1.5"/>
+  <text x="125" y="110" text-anchor="middle" font-size="14" font-weight="700" fill="#1a2332">keycloak-db</text>
+  <text x="125" y="128" text-anchor="middle" font-size="11" fill="#636e72">postgres:16</text>
+  <text x="125" y="146" text-anchor="middle" font-size="11" fill="#0066cc">:25434</text>
+
+  <!-- dsp-db -->
+  <rect x="40" y="340" width="170" height="80" rx="8" fill="#e8f0fe" stroke="#4285f4" stroke-width="1.5"/>
+  <text x="125" y="370" text-anchor="middle" font-size="14" font-weight="700" fill="#1a2332">dsp-db</text>
+  <text x="125" y="388" text-anchor="middle" font-size="11" fill="#636e72">postgres:16</text>
+  <text x="125" y="406" text-anchor="middle" font-size="11" fill="#0066cc">:35433</text>
+
+  <!-- keycloak -->
+  <rect x="310" y="80" width="200" height="80" rx="8" fill="#fef3e2" stroke="#f5a623" stroke-width="1.5"/>
+  <text x="410" y="110" text-anchor="middle" font-size="14" font-weight="700" fill="#1a2332">keycloak</text>
+  <text x="410" y="128" text-anchor="middle" font-size="11" fill="#636e72">Identity Provider</text>
+  <text x="410" y="146" text-anchor="middle" font-size="11" fill="#0066cc">:18443 / :8888</text>
+
+  <!-- dsp -->
+  <rect x="310" y="300" width="200" height="80" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5"/>
+  <text x="410" y="330" text-anchor="middle" font-size="14" font-weight="700" fill="#1a2332">dsp</text>
+  <text x="410" y="348" text-anchor="middle" font-size="11" fill="#636e72">KAS / Policy / AuthZ / ER</text>
+  <text x="410" y="366" text-anchor="middle" font-size="11" fill="#0066cc">:8080</text>
+
+  <!-- dsp-keycloak-provisioning -->
+  <rect x="590" y="80" width="190" height="80" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="685" y="107" text-anchor="middle" font-size="13" font-weight="700" fill="#1a2332">dsp-keycloak</text>
+  <text x="685" y="123" text-anchor="middle" font-size="13" font-weight="700" fill="#1a2332">-provisioning</text>
+  <text x="685" y="146" text-anchor="middle" font-size="11" fill="#636e72">One-shot</text>
+
+  <!-- dsp-provision-federal-policy -->
+  <rect x="590" y="300" width="190" height="80" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="685" y="327" text-anchor="middle" font-size="13" font-weight="700" fill="#1a2332">dsp-provision</text>
+  <text x="685" y="343" text-anchor="middle" font-size="13" font-weight="700" fill="#1a2332">-federal-policy</text>
+  <text x="685" y="366" text-anchor="middle" font-size="11" fill="#636e72">One-shot</text>
+
+  <!-- Arrows -->
+  <defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#636e72"/></marker></defs>
+
+  <line x1="210" y1="120" x2="305" y2="120" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="258" y="112" text-anchor="middle" font-size="10" fill="#636e72">healthy</text>
+
+  <line x1="510" y1="120" x2="585" y2="120" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="548" y="112" text-anchor="middle" font-size="10" fill="#636e72">healthy</text>
+
+  <polyline points="685,160 685,210 410,210 410,295" fill="none" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="550" y="203" text-anchor="middle" font-size="10" fill="#636e72">completed</text>
+
+  <line x1="370" y1="160" x2="370" y2="295" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="355" y="230" text-anchor="end" font-size="10" fill="#636e72">healthy</text>
+
+  <line x1="210" y1="380" x2="305" y2="345" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="258" y="350" text-anchor="middle" font-size="10" fill="#636e72">healthy</text>
+
+  <line x1="510" y1="340" x2="585" y2="340" stroke="#636e72" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="548" y="332" text-anchor="middle" font-size="10" fill="#636e72">healthy</text>
+</svg>
+</div>
+
+<h3>Startup Dependency Chain</h3>
+<p>Docker Compose enforces this dependency order automatically:</p>
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><code>keycloak-db</code> starts and becomes healthy (pg_isready)</div></div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><code>keycloak</code> starts, connects to keycloak-db at localhost:25434, becomes healthy</div></div>
+<div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><code>dsp-keycloak-provisioning</code> runs once (provisions realm, clients, users), exits 0</div></div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content"><code>dsp-db</code> starts in parallel, becomes healthy (pg_isready)</div></div>
+<div class="flow-step"><div class="flow-num">5</div><div class="flow-content"><code>dsp</code> starts after keycloak healthy + provisioning completed + dsp-db healthy</div></div>
+<div class="flow-step"><div class="flow-num">6</div><div class="flow-content"><code>dsp-provision-federal-policy</code> runs once after dsp healthy, loads federal attribute policy, exits 0</div></div>
+<p>Allow ~2&ndash;3 minutes on first run for Keycloak to initialize.</p>
+
+<h3>Networking Model</h3>
+<p><strong>Keycloak</strong> and <strong>DSP</strong> use <code>network_mode: host</code> &mdash; they bind directly to host ports. <strong>keycloak-db</strong> and <strong>dsp-db</strong> use Docker's default bridge network with published ports (25434 and 35433). Host-networked services connect to the databases via <code>localhost:&lt;port&gt;</code>.</p>
+
+<h3>Docker Image Build</h3>
+<p>The <code>dev.dsp.Dockerfile</code> is a two-stage build:</p>
+<ol>
+  <li><strong>Prep stage</strong> (alpine) &mdash; installs CA certificates, copies TLS certs/keys, KAS keys, config files, and builds a merged CA bundle</li>
+  <li><strong>Final stage</strong> (from proprietary DSP image) &mdash; layers in curl (for healthchecks), keys, sample configs, and <code>dsp.yaml</code></li>
+</ol>
+<p>Build arg <code>DSP_IMAGE</code> controls the base DSP image (e.g., <code>localhost:5000/virtru/data-security-platform:v2.7.4</code>).</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Quick Start (Automated) -->
+<!-- ============================================================ -->
+<section id="quickstart">
+<h2>Quick Start (Automated)</h2>
+
+<h3>Prerequisites</h3>
+<p><strong>Docker Engine &ge; 24</strong> with <strong>Docker Compose v2</strong> must be installed before running the setup script. The script handles all other tool installation automatically.</p>
+<div class="callout info"><strong>macOS:</strong> <a href="https://orbstack.dev">OrbStack</a> is the recommended Docker runtime. Install it and start it before proceeding. Docker Desktop, Rancher Desktop, and Colima also work &mdash; see <a href="#platforms">Supported Platforms</a> for caveats.</div>
+
+<h3>Installation and Startup</h3>
+<p>With Docker running, the setup script handles tool installation, key generation, Docker registry setup, stack startup, and validation in a single command:</p>
+
+<pre><code># From the DSP-standalone/ directory:
+./setup_and_validate.sh</code></pre>
+
+<h3>What the script does</h3>
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content">Detects your OS and runs the appropriate prereqs script (<code>mac_prereqs.sh</code> or <code>ubuntu_prereqs.sh</code>)</div></div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content">Verifies all required tools installed successfully</div></div>
+<div class="flow-step"><div class="flow-num">3</div><div class="flow-content">Generates all TLS certificates and keys in <code>dsp-keys/</code> (skips files that already exist)</div></div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content">Starts or verifies the local Docker registry &mdash; prompts for your Virtru DSP bundle path if the image is not yet loaded</div></div>
+<div class="flow-step"><div class="flow-num">5</div><div class="flow-content">Starts the Docker Compose stack and waits for DSP to become healthy</div></div>
+<div class="flow-step"><div class="flow-num">6</div><div class="flow-content">Runs all validation checks and prints a pass/fail summary</div></div>
+
+<h3>Flags</h3>
+<table>
+  <tr><th>Flag</th><th>Effect</th></tr>
+  <tr><td><em>(none)</em></td><td>Full run: prereqs &rarr; keys &rarr; build &rarr; stack &rarr; infra checks &rarr; SDK tests</td></tr>
+  <tr><td><code>--skip-prereqs</code></td><td>Skip tool installation; still validates tools are present</td></tr>
+  <tr><td><code>--no-build</code></td><td>Start stack using cached images &mdash; skips <code>docker compose build</code></td></tr>
+  <tr><td><code>--validate-only</code></td><td>Run infra checks + SDK validation against an already-running stack</td></tr>
+  <tr><td><code>--sdk-only</code></td><td>Run Go SDK tests only &mdash; skips setup and all infra checks</td></tr>
+</table>
+
+<h3>Common Combinations</h3>
+<pre><code># Full run (default)
+./setup_and_validate.sh
+
+# Validate a running stack
+./setup_and_validate.sh --validate-only
+
+# Run only the Go SDK tests (fastest)
+./setup_and_validate.sh --sdk-only
+
+# Skip prereqs and skip rebuild (fastest repeat run)
+./setup_and_validate.sh --skip-prereqs --no-build</code></pre>
+
+<div class="callout warn"><strong>Linux note:</strong> After running the prereqs script for the first time, Docker group membership requires a logout/login (or <code>newgrp docker</code>) before Docker commands work without sudo. Re-run with <code>--skip-prereqs</code> after logging back in.</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Troubleshooting -->
+<!-- ============================================================ -->
+<section id="troubleshooting">
+<h2>Troubleshooting</h2>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Keycloak Fails to Start</div>
+  <div class="card-body">
+    <ul>
+      <li>Verify <code>dsp-keys/local-dsp.virtru.com.pem</code> and <code>.key.pem</code> exist and are readable</li>
+      <li>Check Keycloak-DB is healthy: <code>docker compose ps keycloak-db</code></li>
+      <li>Check Keycloak logs: <code>docker logs virtru-dsp-only-keycloak-1</code></li>
+    </ul>
+
+    <h4>Linux &mdash; TLS Key Permissions</h4>
+    <p><code>mkcert</code> generates private keys with <code>0600</code>. Keycloak runs as UID 1000 and cannot read root-owned <code>0600</code> files through a bind mount.</p>
+    <pre><code>chmod 0644 dsp-keys/local-dsp.virtru.com.key.pem
+docker compose restart keycloak</code></pre>
+
+    <h4>Linux &mdash; firewalld Blocking DB Port</h4>
+    <p>Keycloak (host network) connects to keycloak-db (bridge) at localhost:25434. Firewalld can block this.</p>
+    <pre><code>sudo firewall-cmd --permanent --zone=trusted --add-interface=docker0
+sudo firewall-cmd --reload
+docker compose restart keycloak</code></pre>
+
+    <h4>CentOS/RHEL &mdash; nftables/iptables Conflict</h4>
+    <pre><code>sudo update-alternatives --set iptables /usr/sbin/iptables-legacy
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+sudo systemctl restart docker
+docker compose up -d</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> DSP Fails to Start or Stays Unhealthy</div>
+  <div class="card-body">
+    <ul>
+      <li>Confirm <code>local-dsp.virtru.com</code> resolves: <code>ping local-dsp.virtru.com</code></li>
+      <li>Confirm all KAS key files exist in <code>dsp-keys/</code></li>
+      <li>Check DSP logs: <code>docker logs virtru-dsp-only-dsp-1</code></li>
+    </ul>
+
+    <h4>Linux &mdash; KAS Key Permissions</h4>
+    <pre><code>chmod 0644 dsp-keys/kas-private.pem dsp-keys/kas-ec-private.pem dsp-keys/policyimportexport/cosign.key
+docker compose restart dsp</code></pre>
+    <div class="callout warn"><strong>Local dev only.</strong> Setting private keys to 0644 is safe for local development only. Do not use in production.</div>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Provisioning Container Exits Non-Zero</div>
+  <div class="card-body">
+    <pre><code># Check logs
+docker compose logs dsp-keycloak-provisioning
+
+# Re-run provisioning manually
+docker compose run --rm dsp-keycloak-provisioning
+
+# Re-run federal policy provisioning
+docker compose run --rm dsp-provision-federal-policy</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Port Conflicts</div>
+  <div class="card-body">
+    <p>If any port is already in use, stop the conflicting process or override the published port in the compose file.</p>
+    <pre><code># Example: identify what's using port 5000
+lsof -i :5000</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Linux &mdash; Docker Build DNS Failures</div>
+  <div class="card-body">
+    <p>Containers cannot resolve external DNS. Configure Docker's DNS:</p>
+    <pre><code>echo '{"dns": ["8.8.8.8", "1.1.1.1"]}' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker</code></pre>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Validation -->
+<!-- ============================================================ -->
+<section id="validation">
+<h2>Validation</h2>
+
+<h3>Automated Validation</h3>
+<pre><code># Re-run validation against an already-running stack
+./setup_and_validate.sh --validate-only
+
+# Run only the Go SDK tests
+./setup_and_validate.sh --sdk-only</code></pre>
+
+<table>
+  <tr><th>Mode</th><th>Infra Checks</th><th>SDK Tests</th></tr>
+  <tr><td><em>(default)</em></td><td>Yes</td><td>Yes</td></tr>
+  <tr><td><code>--validate-only</code></td><td>Yes</td><td>Yes</td></tr>
+  <tr><td><code>--sdk-only</code></td><td>No</td><td>Yes</td></tr>
+</table>
+
+<h3>Manual Validation Checks</h3>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Check 1: Container Status</div>
+  <div class="card-body">
+    <pre><code>docker compose ps</code></pre>
+    <p>Expected: 4 services <code>Up (healthy)</code>, 2 provisioning containers <code>Exited (0)</code>.</p>
+    <pre><code>virtru-dsp-only-keycloak-db-1                Up (healthy)
+virtru-dsp-only-keycloak-1                   Up (healthy)
+virtru-dsp-only-dsp-keycloak-provisioning-1  Exited (0)
+virtru-dsp-only-dsp-db-1                     Up (healthy)
+virtru-dsp-only-dsp-1                        Up (healthy)
+virtru-dsp-only-dsp-provision-federal-policy-1  Exited (0)</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Check 2: DSP Health Endpoint</div>
+  <div class="card-body">
+    <pre><code>curl -fks https://local-dsp.virtru.com:8080/healthz</code></pre>
+    <p>Expected: <code>{"status":"SERVING"}</code></p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Check 3: Keycloak Realm Reachable</div>
+  <div class="card-body">
+    <pre><code>curl -fks https://local-dsp.virtru.com:18443/auth/realms/opentdf | jq .realm</code></pre>
+    <p>Expected: <code>"opentdf"</code></p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Check 4: DSP Attributes Provisioned</div>
+  <div class="card-body">
+    <pre><code>TOKEN=$(curl -fks \
+  -d "grant_type=client_credentials&amp;client_id=opentdf&amp;client_secret=secret" \
+  https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token \
+  | jq -r .access_token)
+
+curl -ks -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "connect-protocol-version: 1" \
+  -d '{"pagination":{}}' \
+  "https://local-dsp.virtru.com:8080/policy.attributes.AttributesService/ListAttributes" \
+  | jq '[.attributes[] | {name, rule, namespace: .namespace.name}]'</code></pre>
+    <p>Expected: three attributes (classification, needtoknow, relto) under <code>demo.com</code> namespace.</p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Check 5: Database Connectivity</div>
+  <div class="card-body">
+    <pre><code># DSP database
+docker exec virtru-dsp-only-dsp-db-1 psql -U postgres -d opentdf -c "\dt dsp_policy.*"
+
+# Keycloak database
+docker exec virtru-dsp-only-keycloak-db-1 psql -U postgres -d keycloak -c "\dt *"</code></pre>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: SDK Examples -->
+<!-- ============================================================ -->
+<section id="sdk">
+<h2>SDK Examples</h2>
+
+<p>Three Go programs test the full TDF encrypt/decrypt flow. Run them individually or all together via the setup script:</p>
+<table>
+  <tr><th>Command</th><th>What Runs</th></tr>
+  <tr><td><code>./setup_and_validate.sh</code></td><td>Full setup + infra checks + Go SDK tests</td></tr>
+  <tr><td><code>./setup_and_validate.sh --validate-only</code></td><td>Infra checks + Go SDK tests</td></tr>
+  <tr><td><code>./setup_and_validate.sh --sdk-only</code></td><td>Go SDK tests only (fastest)</td></tr>
+</table>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> toySDK.go &mdash; Encrypt/Decrypt Round-Trip <span class="tag">Smoke Test</span></div>
+  <div class="card-body">
+    <p>Authenticates as <strong>Alex</strong> (<code>aaa@topsecret.usa</code>, TS/USA), encrypts plaintext into a TDF with <code>classification/topsecret</code>, <code>relto/usa</code>, <code>relto/fvey</code>, then decrypts it. Prints plaintext, hex dump of encrypted content, Shannon entropy, and decrypted output.</p>
+    <pre><code># Run directly
+go run toySDK.go
+
+# Or build first
+go build -o toySDK toySDK.go &amp;&amp; ./toySDK</code></pre>
+    <p>Output file: <code>alex_test.tdf</code></p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> bobTestAlexFile.go &mdash; Cross-User Decryption <span class="tag">FVEY Test</span></div>
+  <div class="card-body">
+    <p><strong>Bob</strong> (<code>bbb@topsecret.gbr</code>, TS/GBR) decrypts Alex's TDF. Bob can decrypt because:</p>
+    <ul>
+      <li><code>classification/topsecret</code> &mdash; Bob holds TS clearance</li>
+      <li><code>relto/fvey</code> &mdash; GBR is a Five Eyes member (ANY_OF rule, one match is enough)</li>
+    </ul>
+    <pre><code># Run toySDK.go first to create alex_test.tdf
+go run toySDK.go
+go run bobTestAlexFile.go</code></pre>
+    <h4>Failure Cases</h4>
+    <table>
+      <tr><th>Message</th><th>Cause</th></tr>
+      <tr><td>Could not open alex_test.tdf</td><td>toySDK.go has not been run yet</td></tr>
+      <tr><td>Bob could not authenticate</td><td>Keycloak not running or opentdf-public client misconfigured</td></tr>
+      <tr><td>Bob was denied access</td><td>Subject mappings misconfigured</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> aliceTestAlexFile.go &mdash; Access Denial Test <span class="tag">Policy Test</span></div>
+  <div class="card-body">
+    <p><strong>Alice</strong> (<code>aaa@secret.usa</code>, S/USA) attempts to decrypt Alex's TDF. Access is <strong>correctly denied</strong> because:</p>
+    <ul>
+      <li><code>classification/topsecret</code> &mdash; Alice only holds Secret (S) clearance</li>
+      <li>HIERARCHY rule: Secret &lt; Top Secret, so Alice cannot access Top Secret data</li>
+    </ul>
+    <div class="callout success"><strong>SUCCESS = access denied.</strong> This test reports SUCCESS when access is correctly denied. If Alice decrypts the file, the test reports FAILURE (policy misconfiguration).</div>
+    <pre><code>go run toySDK.go
+go run aliceTestAlexFile.go</code></pre>
+  </div>
+</div>
+
+<h3>SDK Prerequisites</h3>
+<table>
+  <tr><th>Requirement</th><th>Notes</th></tr>
+  <tr><td>Go installed</td><td><code>brew install go</code> (macOS) or see <code>ubuntu_prereqs.sh</code></td></tr>
+  <tr><td>DSP stack running and healthy</td><td>Stack validation checks must pass first</td></tr>
+  <tr><td><code>GOPRIVATE</code> set</td><td><code>go env -w GOPRIVATE=github.com/virtru-corp/*</code></td></tr>
+  <tr><td>Dependencies fetched</td><td><code>go mod tidy</code></td></tr>
+</table>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Users & Credentials -->
+<!-- ============================================================ -->
+<section id="users">
+<h2>Users &amp; Credentials</h2>
+
+<h3>Test Users</h3>
+<p>Users are defined in <code>sample.keycloak.yaml</code>. All test users have password: <code>testuser123</code></p>
+<table>
+  <tr><th>User</th><th>Email</th><th>Clearance</th><th>Need-to-Know</th><th>Nationality</th><th>Role</th></tr>
+  <tr><td>Alice</td><td><code>aaa@secret.usa</code></td><td>S (Secret)</td><td>AAA, BBB, INT, OPS</td><td>USA</td><td>opentdf-org-admin</td></tr>
+  <tr><td>Alex</td><td><code>aaa@topsecret.usa</code></td><td>TS (Top Secret)</td><td>AAA, BBB</td><td>USA</td><td>opentdf-standard</td></tr>
+  <tr><td>Bob</td><td><code>bbb@topsecret.gbr</code></td><td>TS (Top Secret)</td><td>BBB</td><td>GBR</td><td>opentdf-standard</td></tr>
+  <tr><td>Jane</td><td><code>int@classified.fra</code></td><td>C (Confidential)</td><td>INT</td><td>FRA</td><td>opentdf-standard</td></tr>
+  <tr><td>James</td><td><code>user@unclassified.mex</code></td><td>U (Unclassified)</td><td><em>none</em></td><td>MEX</td><td>opentdf-standard</td></tr>
+</table>
+
+<h3>Effective DSP Entitlements</h3>
+<p>Derived from subject condition sets and mappings:</p>
+<table>
+  <tr><th>User</th><th>classification</th><th>needtoknow</th><th>relto</th></tr>
+  <tr><td>Alice (S/USA)</td><td>secret, confidential, unclassified</td><td>aaa, bbb, int, ops</td><td>usa, fvey, nato, pink</td></tr>
+  <tr><td>Alex (TS/USA)</td><td>topsecret, secret, confidential, unclassified</td><td>aaa, bbb</td><td>usa, fvey, nato, pink</td></tr>
+  <tr><td>Bob (TS/GBR)</td><td>topsecret, secret, confidential, unclassified</td><td>bbb</td><td>gbr, fvey, nato, pink</td></tr>
+  <tr><td>Jane (C/FRA)</td><td>confidential, unclassified</td><td>int</td><td>fra, nato, pink</td></tr>
+  <tr><td>James (U/MEX)</td><td>unclassified</td><td><em>none</em></td><td>mex</td></tr>
+</table>
+
+<h3>Service Credentials</h3>
+<table>
+  <tr><th>Service</th><th>Username / Client ID</th><th>Password / Secret</th></tr>
+  <tr><td>Keycloak admin console</td><td><code>admin</code></td><td><code>changeme</code></td></tr>
+  <tr><td>DSP Postgres</td><td><code>postgres</code></td><td><code>changeme</code></td></tr>
+  <tr><td>Keycloak Postgres</td><td><code>postgres</code></td><td><code>changeme</code></td></tr>
+  <tr><td>Keycloak <code>opentdf</code> client</td><td><code>opentdf</code></td><td><code>secret</code></td></tr>
+  <tr><td>Keycloak <code>opentdf-sdk</code> client</td><td><code>opentdf-sdk</code></td><td><code>secret</code></td></tr>
+</table>
+
+<div class="callout info"><strong>Keycloak Admin Console:</strong> <code>https://local-dsp.virtru.com:18443/auth</code></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Managing Users -->
+<!-- ============================================================ -->
+<section id="managing-users">
+<h2>Managing Users</h2>
+
+<p>New users are added to <code>sample.keycloak.yaml</code>. They take effect the next time the Keycloak provisioning container runs.</p>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Option A: Interactive Script (recommended)</div>
+  <div class="card-body">
+    <pre><code>python3 add_user.py</code></pre>
+    <p>Prompts for: username, first/last name, email, password, clearance level, need-to-know compartments, nationality (ISO 3166-1 alpha-3), realm role, and optional group membership. Validates each input and writes the entry directly to <code>sample.keycloak.yaml</code>.</p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Option B: Edit YAML Manually</div>
+  <div class="card-body">
+    <p>Append a new entry under <code>realms[0].users</code>:</p>
+    <pre><code># sample.keycloak.yaml
+realms:
+  - ...
+    users:
+      # ... existing users ...
+      - username: secret-aus-ops
+        enabled: true
+        firstName: Carol
+        lastName: SecretAUS
+        email: ops@secret.aus
+        credentials:
+          - value: testuser123
+            type: password
+        realmRoles:
+          - opentdf-standard
+        attributes:
+          clearance:
+            - S
+          needToKnow:
+            - OPS
+          nationality:
+            - AUS</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Option C: Keycloak Admin UI</div>
+  <div class="card-body">
+    <p>Browse to <code>https://local-dsp.virtru.com:18443/auth/admin</code>, log in with admin/changeme, and create the user through the UI. Refer to the <a href="https://www.keycloak.org/docs/latest/server_admin/index.html">Keycloak administration guide</a>.</p>
+  </div>
+</div>
+
+<h3>Apply and Verify</h3>
+<pre><code># Re-run provisioning (if stack is already running)
+docker compose run --rm dsp-keycloak-provisioning
+
+# Or full restart
+docker compose down &amp;&amp; docker compose up --build</code></pre>
+
+<pre><code># Verify the user was created
+ADMIN_TOKEN=$(curl -fks \
+  -d "grant_type=client_credentials&amp;client_id=opentdf&amp;client_secret=secret" \
+  https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token \
+  | jq -r .access_token)
+
+curl -fks \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/users?username=secret-aus-ops" \
+  | jq '.[0] | {username, email, attributes}'</code></pre>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Managing Attributes -->
+<!-- ============================================================ -->
+<section id="managing-attrs">
+<h2>Managing Attributes</h2>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Adding a Value to an Existing Attribute</div>
+  <div class="card-body">
+    <p><strong>Example: add a new needtoknow compartment <code>sci</code></strong></p>
+
+    <h4>Step 1 &mdash; Add the value</h4>
+    <pre><code># sample.federal_policy.yaml
+attributes:
+  - namespace: demo.com
+    attributes:
+      - name: needtoknow
+        rule: ALL_OF
+        values:
+          - value: aaa
+          - value: bbb
+          - value: int
+          - value: ops
+          - value: sci          # &lt;-- add new value</code></pre>
+
+    <h4>Step 2 &mdash; Add a Subject Condition Set</h4>
+    <pre><code>subject_condition_sets:
+  scs_needtoknow_sci:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.needToKnow[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - SCI
+              - subject_external_selector_value: '.clientId'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values: *approved_clients</code></pre>
+
+    <h4>Step 3 &mdash; Add a Subject Mapping</h4>
+    <pre><code>subject_mappings:
+  sm_needtoknow_sci:
+    attribute_value: demo.com/attr/needtoknow/value/sci
+    subject_condition_set_name: scs_needtoknow_sci
+    actions:
+      - DECRYPT
+      - READ</code></pre>
+
+    <h4>Step 4 &mdash; Reprovision</h4>
+    <pre><code>docker compose run --rm dsp-provision-federal-policy</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Adding a New Attribute Definition</div>
+  <div class="card-body">
+    <p><strong>Example: add a <code>program</code> attribute with values <code>alpha</code> and <code>bravo</code></strong></p>
+
+    <h4>Available Rule Types</h4>
+    <table>
+      <tr><th>Rule</th><th>Behavior</th></tr>
+      <tr><td>HIERARCHY</td><td>Values are ordered; higher entitlement implies lower ones</td></tr>
+      <tr><td>ALL_OF</td><td>User must hold every value applied to the data</td></tr>
+      <tr><td>ANY_OF</td><td>User needs at least one matching value</td></tr>
+    </table>
+
+    <h4>Step 1 &mdash; Add the attribute definition</h4>
+    <pre><code>attributes:
+  - namespace: demo.com
+    attributes:
+      - name: classification
+        # ... existing ...
+      - name: program              # &lt;-- new attribute
+        rule: ANY_OF
+        values:
+          - value: alpha
+          - value: bravo</code></pre>
+
+    <h4>Step 2 &mdash; Add Subject Condition Sets</h4>
+    <pre><code>subject_condition_sets:
+  scs_program_alpha:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.program[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - alpha
+              - subject_external_selector_value: '.clientId'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values: *approved_clients
+
+  scs_program_bravo:
+    # ... same pattern with 'bravo' ...</code></pre>
+
+    <h4>Step 3 &mdash; Add Subject Mappings</h4>
+    <pre><code>subject_mappings:
+  sm_program_alpha:
+    attribute_value: demo.com/attr/program/value/alpha
+    subject_condition_set_name: scs_program_alpha
+    actions:
+      - DECRYPT
+      - READ
+
+  sm_program_bravo:
+    attribute_value: demo.com/attr/program/value/bravo
+    subject_condition_set_name: scs_program_bravo
+    actions:
+      - DECRYPT
+      - READ</code></pre>
+
+    <h4>Step 4 &mdash; Update users in sample.keycloak.yaml</h4>
+    <pre><code>users:
+  - username: secret-usa-aaa
+    attributes:
+      clearance:
+        - S
+      needToKnow:
+        - AAA
+      nationality:
+        - USA
+      program:              # &lt;-- add new attribute
+        - alpha</code></pre>
+
+    <h4>Step 5 &mdash; Reprovision everything</h4>
+    <pre><code># Reprovision Keycloak users
+docker compose run --rm dsp-keycloak-provisioning
+
+# Reprovision DSP policy
+docker compose run --rm dsp-provision-federal-policy</code></pre>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Access Control (ABAC) -->
+<!-- ============================================================ -->
+<section id="abac">
+<h2>Access Control (ABAC)</h2>
+
+<p>DSP uses <strong>Attribute-Based Access Control (ABAC)</strong>. The flow from user identity to data access:</p>
+
+<div class="flow-step"><div class="flow-num">1</div><div class="flow-content"><strong>Keycloak user</strong> has IdP attributes (<code>clearance</code>, <code>needToKnow</code>, <code>nationality</code>)</div></div>
+<div class="flow-step"><div class="flow-num">2</div><div class="flow-content"><strong>Subject Condition Sets</strong> in <code>sample.federal_policy.yaml</code> match those attributes</div></div>
+<div class="flow-step"><div class="flow-num">3</div><div class="flow-content"><strong>Subject Mappings</strong> link condition sets to DSP Attribute Values</div></div>
+<div class="flow-step"><div class="flow-num">4</div><div class="flow-content">Attribute values are <strong>applied to TDF-protected data</strong> at encrypt time</div></div>
+<div class="flow-step"><div class="flow-num">5</div><div class="flow-content">On decrypt, DSP checks whether the user's attributes <strong>satisfy all values</strong> on the data</div></div>
+
+<h3>Attribute Definitions</h3>
+<p>All attributes belong to the <code>demo.com</code> namespace and are defined in <code>sample.federal_policy.yaml</code>.</p>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> classification &mdash; HIERARCHY rule <span class="tag">Ordered</span></div>
+  <div class="card-body">
+    <p>Values are ordered from highest to lowest. A user entitled to a higher level is automatically entitled to all lower levels.</p>
+    <table>
+      <tr><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>topsecret</code></td><td>Top Secret</td></tr>
+      <tr><td><code>secret</code></td><td>Secret</td></tr>
+      <tr><td><code>confidential</code></td><td>Confidential</td></tr>
+      <tr><td><code>unclassified</code></td><td>Unclassified</td></tr>
+    </table>
+    <h4>Keycloak clearance mappings</h4>
+    <table>
+      <tr><th>Keycloak <code>clearance</code> value(s)</th><th>Entitled to</th></tr>
+      <tr><td><code>TS</code>, <code>Top Secret</code>, <code>topsecret</code>, <code>DV</code>, <code>PV</code>, <code>NV2</code></td><td>topsecret (and all below)</td></tr>
+      <tr><td><code>S</code>, <code>SC</code>, <code>Secret</code>, <code>NV1</code></td><td>secret (and all below)</td></tr>
+      <tr><td><code>C</code>, <code>Confidential</code></td><td>confidential (and below)</td></tr>
+      <tr><td><code>U</code>, <code>Unclassified</code></td><td>unclassified</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> needtoknow &mdash; ALL_OF rule <span class="tag">All Required</span></div>
+  <div class="card-body">
+    <p>A user must hold <strong>all</strong> needtoknow values applied to a piece of data to decrypt it.</p>
+    <table>
+      <tr><th>Value</th><th>Mapped from Keycloak <code>needToKnow</code></th></tr>
+      <tr><td><code>aaa</code></td><td>AAA</td></tr>
+      <tr><td><code>bbb</code></td><td>BBB</td></tr>
+      <tr><td><code>int</code></td><td>INT</td></tr>
+      <tr><td><code>ops</code></td><td>OPS</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> relto &mdash; ANY_OF rule <span class="tag">Any Match</span></div>
+  <div class="card-body">
+    <p>A user needs <strong>at least one</strong> matching relto value. Includes coalition groups and individual ISO 3166-1 alpha-3 country codes.</p>
+    <table>
+      <tr><th>Value</th><th>Members</th></tr>
+      <tr><td><code>fvey</code></td><td>USA, GBR, AUS, CAN, NZL</td></tr>
+      <tr><td><code>nato</code></td><td>32 NATO member nations</td></tr>
+      <tr><td><code>pink</code></td><td>21 nations (USA, GBR, FRA, DEU, + 17 others)</td></tr>
+      <tr><td><code>USA</code>, <code>GBR</code>, <code>FRA</code>, ...</td><td>Individual nations &mdash; mapped from Keycloak <code>nationality</code></td></tr>
+    </table>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Configuration Files -->
+<!-- ============================================================ -->
+<section id="config">
+<h2>Configuration Files</h2>
+
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>dsp.yaml</code></td><td>DSP runtime configuration &mdash; endpoints, database, services, TLS, auth, CORS</td></tr>
+  <tr><td><code>docker-compose.yaml</code></td><td>Docker Compose stack definition &mdash; 6 services, networking, healthchecks</td></tr>
+  <tr><td><code>docker-compose.mac.yml</code></td><td>macOS override &mdash; replaces Keycloak healthcheck with Java-based HTTP check</td></tr>
+  <tr><td><code>dev.dsp.Dockerfile</code></td><td>Two-stage Dockerfile &mdash; builds CA bundle, stages keys/config onto DSP base image</td></tr>
+  <tr><td><code>sample.keycloak.yaml</code></td><td>Keycloak realm, clients, users, roles. Consumed by <code>dsp-keycloak-provisioning</code></td></tr>
+  <tr><td><code>sample.federal_policy.yaml</code></td><td>DSP attribute definitions, subject condition sets, subject mappings. Consumed by <code>dsp-provision-federal-policy</code></td></tr>
+</table>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> dsp.yaml &mdash; DSP Services <span class="tag">Config</span></div>
+  <div class="card-body">
+    <table>
+      <tr><th>Service</th><th>Description</th></tr>
+      <tr><td><code>kas</code></td><td>Key Access Service &mdash; RSA (<code>r1</code>) and EC (<code>e1</code>) key rings for TDF encrypt/decrypt</td></tr>
+      <tr><td><code>entityresolution</code></td><td>Resolves user identity from Keycloak (email, username lookup)</td></tr>
+      <tr><td><code>authorization</code></td><td>Validates key unwrap requests against user entitlements</td></tr>
+      <tr><td><code>policyimportexport</code></td><td>Signs/verifies policy imports using cosign keys</td></tr>
+      <tr><td><code>taggingpdp</code></td><td>Tagging PDP service (references dsp.yaml config)</td></tr>
+      <tr><td><code>sharepoint</code></td><td>SharePoint PEP integration using encrypted search key</td></tr>
+    </table>
+    <p>Other PEP services (outlook, shared, tdfviewer, web-admin) are intentionally omitted &mdash; this is a standalone core DSP deployment.</p>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> sample.keycloak.yaml &mdash; Keycloak Realm <span class="tag">Config</span></div>
+  <div class="card-body">
+    <p>Defines the <code>opentdf</code> realm with:</p>
+    <ul>
+      <li><strong>3 realm roles:</strong> opentdf-org-admin, opentdf-admin, opentdf-standard</li>
+      <li><strong>6 clients:</strong> opentdf, opentdf-sdk, opentdf-public, tdf-entity-resolution, tdf-authorization-svc, dsp-cop-client</li>
+      <li><strong>5 test users:</strong> Alice, Alex, Bob, Jane, James (see Users section)</li>
+      <li><strong>Token exchange:</strong> opentdf &rarr; opentdf-sdk</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> dsp-keys/ &mdash; Cryptographic Keys <span class="tag">Keys</span></div>
+  <div class="card-body">
+    <div class="tree">
+      <details open>
+        <summary>dsp-keys/</summary>
+        <div class="file">local-dsp.virtru.com.pem <span class="desc">TLS certificate for Keycloak and DSP</span></div>
+        <div class="file">local-dsp.virtru.com.key.pem <span class="desc">TLS private key</span></div>
+        <div class="file">kas-cert.pem <span class="desc">KAS RSA certificate</span></div>
+        <div class="file">kas-private.pem <span class="desc">KAS RSA private key</span></div>
+        <div class="file">kas-ec-cert.pem <span class="desc">KAS EC certificate</span></div>
+        <div class="file">kas-ec-private.pem <span class="desc">KAS EC private key</span></div>
+        <div class="file">encrypted-search.key <span class="desc">Encrypted search key (hex string)</span></div>
+        <details open>
+          <summary>policyimportexport/</summary>
+          <div class="file">cosign.key <span class="desc">Policy signing private key</span></div>
+          <div class="file">cosign.pub <span class="desc">Policy signing public key</span></div>
+          <div class="file">cosign.pass <span class="desc">Passphrase for cosign.key</span></div>
+        </details>
+      </details>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION: Manual Setup (Reference) -->
+<!-- ============================================================ -->
+<section id="manual">
+<h2>Manual Setup</h2>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 1: Install Prerequisites</div>
+  <div class="card-body">
+    <h4>macOS</h4>
+    <pre><code>./mac_prereqs.sh</code></pre>
+    <p>Installs: Homebrew (if missing), curl, wget, git, make, python3, jq, Node.js, nvm, Go, mkcert (+ trust store), cosign. Also adds the <code>/etc/hosts</code> entry.</p>
+    <div class="callout info"><strong>Docker on macOS:</strong> Cannot be installed automatically. Install OrbStack from <a href="https://orbstack.dev">orbstack.dev</a>, start it, then re-run the prereqs script.</div>
+
+    <h4>Ubuntu 24.04 LTS (Experimental)</h4>
+    <pre><code>./ubuntu_prereqs.sh
+
+# Log out and back in for Docker group changes:
+newgrp docker</code></pre>
+
+    <h4>Red Hat Enterprise Linux 8 (Experimental)</h4>
+    <pre><code>./rhel_prereqs.sh
+
+# Log out and back in for Docker group changes:
+newgrp docker</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 2: /etc/hosts Entry</div>
+  <div class="card-body">
+    <p>Add this line to <code>/etc/hosts</code> (requires <code>sudo</code>):</p>
+    <pre><code>127.0.0.1  local-dsp.virtru.com</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 3: Unpack the Bundle</div>
+  <div class="card-body">
+    <p>Unzip the Virtru DSP bundle and extract the DSP binary. Replace <code>X.X.X</code>, <code>&lt;os&gt;</code>, and <code>&lt;arch&gt;</code> with your version and platform details.</p>
+    <pre><code># Untar the main bundle
+mkdir virtru-dsp-bundle &amp;&amp; tar -xvf virtru-dsp-bundle-* -C virtru-dsp-bundle/ &amp;&amp; cd virtru-dsp-bundle/
+
+# Unpack DSP tools (choose your platform)
+# Linux amd64:
+tar -xvf tools/dsp/data-security-platform_X.X.X_linux_amd64.tar.gz
+# macOS arm64 (Apple Silicon):
+tar -xvf tools/dsp/data-security-platform_X.X.X_darwin_arm64.tar.gz
+# macOS amd64 (Intel):
+tar -xvf tools/dsp/data-security-platform_X.X.X_darwin_amd64.tar.gz
+
+# Unpack grpcurl (choose your platform)
+tar -xvf tools/grpcurl/grpcurl_X.X.X_linux_amd64.tar.gz
+chmod +x ./grpcurl</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 4: Generate TLS Certificates and Keys</div>
+  <div class="card-body">
+    <pre><code># 1. Install mkcert
+# macOS:
+brew install mkcert &amp;&amp; mkcert -install
+
+# 2. TLS certificate for Keycloak and DSP
+mkcert \
+  -cert-file dsp-keys/local-dsp.virtru.com.pem \
+  -key-file  dsp-keys/local-dsp.virtru.com.key.pem \
+  local-dsp.virtru.com "*.local-dsp.virtru.com" localhost
+
+# 3. KAS RSA key pair
+openssl req -x509 -nodes -newkey RSA:2048 -subj "/CN=kas" \
+  -keyout dsp-keys/kas-private.pem -out dsp-keys/kas-cert.pem -days 365
+
+# 4. KAS EC key pair
+openssl ecparam -name prime256v1 &gt; dsp-keys/ecparams.tmp
+openssl req -x509 -nodes -newkey ec:dsp-keys/ecparams.tmp -subj "/CN=kas" \
+  -keyout dsp-keys/kas-ec-private.pem -out dsp-keys/kas-ec-cert.pem -days 365
+rm dsp-keys/ecparams.tmp
+
+# 5. Policy import/export signing keys
+# macOS:
+brew install cosign
+
+mkdir -p dsp-keys/policyimportexport
+COSIGN_PASSWORD=changeme cosign generate-key-pair \
+  --output-key-prefix dsp-keys/policyimportexport/cosign
+printf '%s' 'changeme' &gt; dsp-keys/policyimportexport/cosign.pass
+
+# 6. Encrypted search key (placeholder)
+printf '%s' '49e9a28af998c2678e6651ad4e60a2dbba2f3d284f58b224b3382919c1de7d55' \
+  &gt; dsp-keys/encrypted-search.key</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 5: DSP Image in the Local Registry</div>
+  <div class="card-body">
+    <p>The <code>dev.dsp.Dockerfile</code> builds on top of the proprietary DSP image which must be loaded into a local Docker registry on port 5000.</p>
+    <pre><code># Start the local registry (once)
+docker run -d --restart=always -p 5000:5000 --name registry registry:2
+
+# Load DSP images from the bundle directory
+cd virtru-dsp-bundle/
+./dsp copy-images --insecure localhost:5000/virtru
+
+# Verify and note the tag
+curl -s http://localhost:5000/v2/virtru/data-security-platform/tags/list | jq .</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 6: Build and Start the Stack</div>
+  <div class="card-body">
+    <pre><code># Detect the DSP image tag from the local registry
+DSP_TAG=$(curl -fsSL http://localhost:5000/v2/virtru/data-security-platform/tags/list | jq -r '.tags | sort | last')
+
+# Build images
+docker compose build --build-arg "DSP_IMAGE=localhost:5000/virtru/data-security-platform:${DSP_TAG}"
+
+# Start detached
+docker compose up -d</code></pre>
+    <p>On repeat runs where images are already built:</p>
+    <pre><code>docker compose up -d</code></pre>
+  </div>
+</div>
+
+<div class="card open">
+  <div class="card-header" onclick="toggleCard(this)"><span class="arrow">&#9654;</span> Step 7: Stop / Restart / Logs</div>
+  <div class="card-body">
+    <pre><code># Stop
+docker compose down
+
+# Stop and delete Postgres volumes
+docker compose down -v
+
+# View all logs
+docker compose logs -f
+
+# Single service logs
+docker compose logs -f dsp
+docker compose logs -f keycloak</code></pre>
+    <div class="callout info"><strong>OrbStack tip:</strong> Once the stack has been started successfully, you can manage it from the OrbStack UI &mdash; find the <code>virtru-dsp-only</code> container group and use play/stop buttons.</div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<!-- JavaScript -->
+<script>
+// Card toggle
+function toggleCard(header) {
+  header.parentElement.classList.toggle('open');
+}
+
+// Scroll-spy
+const sections = document.querySelectorAll('section');
+const navLinks = document.querySelectorAll('.sidebar a');
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('active'));
+      const link = document.querySelector('.sidebar a[href="#' + entry.target.id + '"]');
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-56px 0px -60% 0px', threshold: 0.1 });
+
+sections.forEach(s => observer.observe(s));
+
+// Smooth scroll
+navLinks.forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(link.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+// Search
+document.getElementById('search').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  sections.forEach(s => {
+    const text = s.textContent.toLowerCase();
+    const match = !q || text.includes(q);
+    s.classList.toggle('hidden', !match);
+    const link = document.querySelector('.sidebar a[href="#' + s.id + '"]');
+    if (link) link.style.opacity = match ? '1' : '.3';
+  });
+});
+</script>
+</body>
+</html>
