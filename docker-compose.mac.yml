@@ -1,0 +1,20 @@
+# macOS override for docker-compose.yaml
+#
+# Replaces the Keycloak healthcheck with the original Java-based HTTP check
+# on port 8888. Keycloak 25 serves health on the management port (9000) on
+# Linux, but on macOS the HTTP port (8888) is reliably available in start-dev
+# mode and Java is always present in the Keycloak image.
+#
+# Applied automatically by setup_and_validate.sh via COMPOSE_FILE when
+# running on macOS. Do not apply on Linux/RHEL/CentOS.
+
+services:
+  keycloak:
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "[ -f /tmp/HealthCheck.java ] || echo \"public class HealthCheck { public static void main(String[] args) throws java.lang.Throwable { System.exit(java.net.HttpURLConnection.HTTP_OK == ((java.net.HttpURLConnection)new java.net.URL(args[0]).openConnection()).getResponseCode() ? 0 : 1); } }\" > /tmp/HealthCheck.java && java /tmp/HealthCheck.java http://localhost:8888/auth"
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 60s

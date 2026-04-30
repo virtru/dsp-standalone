@@ -1,7 +1,11 @@
 .idea/
 sample.federal_policy.yaml
 __pycache__/
+.DS_Store
 
+# Virtru DSP Bundle
+virtru-dsp-bundle-*.tar.gz
+virtru-dsp-bundle/
 # Keys directory and other secrets
 dsp-keys/
 *Key.pem
