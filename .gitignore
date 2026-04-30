@@ -1,2 +1,9 @@
 .idea/
 sample.federal_policy.yaml
+__pycache__/
+
+# Keys directory and other secrets
+dsp-keys/
+*Key.pem
+pkg/license/keys/dev_private.pem
+pkg/license/keys/dev_public.pem
