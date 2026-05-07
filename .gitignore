@@ -2,6 +2,7 @@
 sample.federal_policy.yaml
 __pycache__/
 .DS_Store
+.generated/
 
 # Virtru DSP Bundle
 virtru-dsp-bundle-*.tar.gz

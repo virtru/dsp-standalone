@@ -167,6 +167,8 @@ fi
 # Script must run from DSP-standalone/
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+GENERATED_DIR="$SCRIPT_DIR/.generated"
+GENERATED_TAGGING_PDP_WORKFLOW="$GENERATED_DIR/tagging-pdp-workflows.yaml"
 log_ok "Working directory: $SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
@@ -221,6 +223,69 @@ validate_tools() {
       fi
     fi
   fi
+}
+
+resolve_tagging_pdp_workflow_source() {
+  local bundle_dir="${1:-}"
+  local default_bundle_dir="$SCRIPT_DIR/virtru-dsp-bundle"
+  local candidate=""
+  local prompt_path=""
+
+  if [[ -n "$bundle_dir" && -f "$bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
+    candidate="$bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
+    log_info "Using tagging PDP workflow from bundle: $candidate"
+    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
+    return 0
+  fi
+
+  if [[ -f "$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
+    candidate="$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
+    log_info "Using tagging PDP workflow from unpacked bundle: $candidate"
+    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
+    return 0
+  fi
+
+  echo
+  log_warn "tagging-pdp-workflows.yaml was not found in the bundle at ./kubernetes/tagging-pdp-workflows.yaml."
+  while true; do
+    read -rp "  Enter the path to your tagging PDP workflow YAML: " prompt_path
+    prompt_path="${prompt_path/#\~/$HOME}"
+    if [[ -z "$prompt_path" ]]; then
+      echo "  Path cannot be empty."
+      continue
+    fi
+    if [[ ! -f "$prompt_path" ]]; then
+      echo "  File not found: $prompt_path"
+      continue
+    fi
+    TAGGING_PDP_WORKFLOW_SOURCE="$prompt_path"
+    return 0
+  done
+}
+
+stage_tagging_pdp_workflow() {
+  local source_path="$1"
+
+  mkdir -p "$GENERATED_DIR"
+  if grep -q '^taggingpdpWorkflows:$' "$source_path" && grep -q '^  config\.yaml:$' "$source_path"; then
+    awk '
+      /^  config\.yaml:$/ { emit=1; next }
+      emit {
+        if ($0 ~ /^    /) {
+          sub(/^    /, "")
+          print
+        } else if ($0 ~ /^$/) {
+          print ""
+        } else {
+          exit
+        }
+      }
+    ' "$source_path" > "$GENERATED_TAGGING_PDP_WORKFLOW"
+    log_info "Extracted inner tagging PDP workflow from bundle wrapper format"
+  else
+    cp "$source_path" "$GENERATED_TAGGING_PDP_WORKFLOW"
+  fi
+  log_ok "Staged tagging PDP workflow: $GENERATED_TAGGING_PDP_WORKFLOW"
 }
 
 # ---------------------------------------------------------------------------
@@ -550,7 +615,8 @@ print('Updated $DAEMON_JSON')
     echo "  The proprietary DSP image must be loaded from a Virtru bundle."
     echo "  Expected layout inside the bundle:"
     echo "    virtru-dsp-bundle/"
-    echo "    └── dsp   (the DSP CLI binary)"
+    echo "    ├── dsp   (the DSP CLI binary)"
+    echo "    └── kubernetes/tagging-pdp-workflows.yaml"
     echo
 
     # If the prereqs script already unpacked the bundle, use it automatically
@@ -612,6 +678,10 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
   DSP_IMAGE="localhost:5000/virtru/data-security-platform:${DSP_TAG}"
   log_ok "DSP image: $DSP_IMAGE"
+
+  log_section "Resolving tagging PDP workflow"
+  resolve_tagging_pdp_workflow_source "${BUNDLE_DIR:-}"
+  stage_tagging_pdp_workflow "$TAGGING_PDP_WORKFLOW_SOURCE"
 
   log_section "Starting Docker Compose stack"
 
