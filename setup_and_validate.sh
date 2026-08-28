@@ -723,6 +723,10 @@ unpack_bundle_archive() {
 
   bundle_name="$(basename "$bundle_tar")"
   bundle_name="${bundle_name%.tar.gz}"
+  if [[ -z "$bundle_name" || "$bundle_name" == "." || "$bundle_name" == ".." ]]; then
+    log_fail "Bundle archive has an unsafe cache name: $bundle_tar"
+    return 1
+  fi
   bundle_dir="$GENERATED_DIR/$bundle_name"
 
   if [[ -d "$bundle_dir" ]] && ensure_bundle_directory_ready "$bundle_dir"; then
@@ -745,6 +749,10 @@ unpack_bundle_archive() {
     return 1
   fi
 
+  if [[ -e "$bundle_dir" || -L "$bundle_dir" ]]; then
+    log_warn "Removing incomplete DSP bundle cache: $bundle_dir"
+    rm -rf "$bundle_dir"
+  fi
   mkdir -p "$bundle_dir"
   log_info "Unpacking Virtru DSP bundle archive: $bundle_tar"
   tar -xvf "$bundle_tar" -C "$bundle_dir" >/dev/null

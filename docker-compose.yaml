@@ -101,7 +101,7 @@ services:
       # without relying on an HTTP client that is absent from the image.
       test:
         - CMD-SHELL
-        - timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000' >/dev/null 2>&1
+        - bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000' >/dev/null 2>&1
       interval: 10s
       timeout: 10s
       retries: 18
