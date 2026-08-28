@@ -52,7 +52,8 @@ RUN test -f /work/samples/defaults/keycloak_data.yaml \
 # hadolint ignore=DL3006
 FROM ${DSP_IMAGE} AS dsp
 
-# Install curl for Docker health checks
+# Best-effort curl install for the primary Docker health probe. The Compose
+# healthcheck falls back to bash /dev/tcp when the base has no package manager.
 # Rolling/curated DSP base: pin the image, not apt/apk package versions.
 # hadolint ignore=DL3008,DL3018
 RUN { apt-get update -qq && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*; } 2>/dev/null || \
