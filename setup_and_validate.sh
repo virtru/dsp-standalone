@@ -1500,6 +1500,23 @@ print_program_output() {
   echo
 }
 
+go_version_at_least() {
+  local actual="${1#go}"
+  local required="${2#go}"
+
+  awk -v actual="$actual" -v required="$required" 'BEGIN {
+    actual_count = split(actual, actual_parts, ".")
+    required_count = split(required, required_parts, ".")
+    for (part_index = 1; part_index <= 3; part_index++) {
+      actual_value = part_index <= actual_count ? actual_parts[part_index] + 0 : 0
+      required_value = part_index <= required_count ? required_parts[part_index] + 0 : 0
+      if (actual_value > required_value) exit 0
+      if (actual_value < required_value) exit 1
+    }
+    exit 0
+  }'
+}
+
 if [[ "$SDK_VALIDATION" == "true" ]]; then
   log_section "SDK Validation (Go programs)"
 
@@ -1531,11 +1548,27 @@ if [[ "$SDK_VALIDATION" == "true" ]]; then
     EXPECTED_OAUTH="golang.org/x/oauth2"
 
     GOMOD_OK=true
+    GO_VERSION_OK=true
+    REQUIRED_GO_VERSION=""
+    ACTUAL_GO_VERSION=""
 
     if [[ ! -f "$GOMOD" ]]; then
       log_warn "go.mod not found"
       GOMOD_OK=false
     else
+      REQUIRED_GO_VERSION="$(awk '$1 == "go" { print $2; exit }' "$GOMOD")"
+      ACTUAL_GO_VERSION="$(go env GOVERSION 2>/dev/null || true)"
+      if [[ -z "$ACTUAL_GO_VERSION" ]]; then
+        ACTUAL_GO_VERSION="$(go version | awk '{ print $3 }')"
+      fi
+
+      if [[ -z "$REQUIRED_GO_VERSION" ]]; then
+        log_warn "go.mod is missing its Go version directive"
+        GOMOD_OK=false
+      elif ! go_version_at_least "$ACTUAL_GO_VERSION" "$REQUIRED_GO_VERSION"; then
+        GO_VERSION_OK=false
+      fi
+
       # Verify the module name and required direct dependencies are present
       if ! grep -q "^module ${EXPECTED_MODULE}$" "$GOMOD"; then
         log_warn "go.mod module name is not '${EXPECTED_MODULE}'"
@@ -1555,7 +1588,12 @@ if [[ "$SDK_VALIDATION" == "true" ]]; then
       check_fail "go.mod is missing or invalid"
       ERRORS+=("go.mod is missing or invalid — restore the committed module before running SDK validation")
       log_warn "Skipping SDK builds because the committed Go module is unavailable"
+    elif [[ "$GO_VERSION_OK" == false ]]; then
+      check_fail "Go toolchain ${ACTUAL_GO_VERSION} is older than required ${REQUIRED_GO_VERSION}"
+      ERRORS+=("Go ${REQUIRED_GO_VERSION} or newer is required — upgrade Go or enable automatic toolchain downloads")
+      log_warn "Skipping SDK builds because the Go toolchain is too old"
     else
+      log_ok "Go toolchain ${ACTUAL_GO_VERSION} satisfies go.mod (${REQUIRED_GO_VERSION})"
       check_pass "go.mod is present and contains the expected dependencies"
 
       # Load and verify the committed dependency graph without rewriting it.

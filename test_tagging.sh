@@ -127,7 +127,7 @@ filter_tags_for_namespace() {
     *) cat; return 0 ;;
   esac
 
-  grep -E "^${prefix}" || true
+  awk -v prefix="$prefix" 'index($0, prefix) == 1'
 }
 
 run_remote_tagging() {

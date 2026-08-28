@@ -1,2 +1,11 @@
-# Exclude ephemeral GitHub Actions GCP credential files from Docker build context.
+# Exclude repository metadata and downloaded/generated bundle content from the
+# Docker build context. The staged policy file and dsp-keys remain available
+# because dev.dsp.Dockerfile copies them into the image deliberately.
+.git/
+.generated/
+virtru-dsp-bundle/
+virtru-dsp-bundle-*/
+virtru-dsp-bundle-*.tar.gz
+
+# Exclude ephemeral GitHub Actions GCP credential files.
 gha-creds-*.json

@@ -268,7 +268,10 @@ realms:
         realmRoles:
           - opentdf-standard
       # ----------------------------------------------------------------------
-      # company.com namespace sample users (see company-policy/).
+      # Compatibility users for Integration Studios demos that start from the
+      # base stack. The optional --add-namespace company flow separately adds
+      # the canonical *-company-user accounts used by this repository's
+      # company namespace validation (see sample.company_keycloak.yaml).
       # Each user carries a single Keycloak `dept` attribute. The company.com
       # subject mappings resolve entitlements from that dept value:
       #   - ANY dept           -> sensitivity/confidential (+ public via hierarchy)

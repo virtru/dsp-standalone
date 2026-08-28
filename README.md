@@ -165,6 +165,12 @@ To add it to an already-running stack and run its validation:
 See [company-policy/README.md](company-policy/README.md) for the policy model,
 sample users, and advanced policy construction script.
 
+The base Keycloak configuration also retains the short-name `eng-user`,
+`hr-user`, `accounting-user`, and `sales-user` accounts for compatibility with
+Integration Studios demos. The optional company flow provisions the canonical
+`*-company-user` accounts documented above; those are the accounts used by this
+repository's company namespace validation.
+
 ## Operating the stack
 
 Run commands from `dsp-standalone/`.
