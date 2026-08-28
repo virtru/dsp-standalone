@@ -419,13 +419,13 @@ get_keycloak_admin_token() {
 
 list_policy_attribute_pairs() {
   local token="$1"
-  curl -ksSo - --max-time 10 -X POST \
+  curl -fksSo - --max-time 10 -X POST \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
     -H "connect-protocol-version: 1" \
     -d '{"pagination":{}}' \
     "https://local-dsp.virtru.com:8080/policy.attributes.AttributesService/ListAttributes" \
-    2>/dev/null | jq -r '.attributes[]? | "\(.namespace.name)/\(.name)"' 2>/dev/null | sort -u
+    2>/dev/null | jq -r '.attributes[]? | "\(.namespace.name)/\(.name)"' 2>/dev/null | sort -u || true
 }
 
 company_policy_is_present() {

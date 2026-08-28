@@ -166,7 +166,13 @@ services:
     restart: always
     volumes:
       - ./dsp-keys:/dsp-keys:z
-      - ./.generated/tagging-pdp-workflows.yaml:/config/tagging-pdp-workflows.yaml:ro,z
+      - type: bind
+        source: ./.generated/tagging-pdp-workflows.yaml
+        target: /config/tagging-pdp-workflows.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+          selinux: z
     environment:
       DSP_DB_HOST: localhost
       DSP_DB_PORT: 35433

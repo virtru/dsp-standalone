@@ -75,6 +75,13 @@ func shannonEntropy(data []byte) float64 {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "FAILURE: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
 
 	// Use an insecure HTTP client for the local dev TLS certificate
@@ -94,7 +101,7 @@ func main() {
 	}
 	token, err := oauthCfg.PasswordCredentialsToken(ctx, "aaa@topsecret.usa", "testuser123")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("authenticate Alex with Keycloak: %w", err)
 	}
 	tokenSource := oauthCfg.TokenSource(ctx, token)
 
@@ -105,13 +112,13 @@ func main() {
 		otdf.WithOAuthAccessTokenSource(tokenSource),
 	)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("create OpenTDF SDK client: %w", err)
 	}
 
 	// --- Step 1: Plaintext ---
 	randomPlaintext, err := randomString(140)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	plaintextStr := fmt.Sprintf("TOP SECRET\n%s\nTOP SECRET", randomPlaintext)
 	fmt.Println("========================================")
@@ -133,7 +140,7 @@ func main() {
 		),
 	)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("create TDF: %w", err)
 	}
 
 	encryptedBytes := encrypted.Bytes()
@@ -141,7 +148,7 @@ func main() {
 	// --- Step 3: Save TDF to disk ---
 	outFile := "alex_test.tdf"
 	if err := os.WriteFile(outFile, encryptedBytes, 0644); err != nil {
-		panic(err)
+		return fmt.Errorf("write TDF to %s: %w", outFile, err)
 	}
 	fmt.Printf("\nTDF written to: %s (%d bytes)\n", outFile, len(encryptedBytes))
 
@@ -161,14 +168,14 @@ func main() {
 	// --- Step 6: Decrypt and print ---
 	tdfReader, err := client.LoadTDF(bytes.NewReader(encryptedBytes))
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("load encrypted TDF: %w", err)
 	}
 	if err := tdfReader.Init(ctx); err != nil {
-		panic(err)
+		return fmt.Errorf("initialize TDF reader: %w", err)
 	}
 	decrypted := &bytes.Buffer{}
 	if _, err := tdfReader.WriteTo(decrypted); err != nil {
-		panic(err)
+		return fmt.Errorf("decrypt TDF: %w", err)
 	}
 
 	fmt.Println("\n========================================")
@@ -176,4 +183,6 @@ func main() {
 	fmt.Println("========================================")
 	fmt.Println(decrypted.String())
 	fmt.Println("\nSUCCESS: TDF created, saved, and decrypted successfully")
+
+	return nil
 }
