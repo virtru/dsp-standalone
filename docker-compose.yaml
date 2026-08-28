@@ -97,11 +97,8 @@ services:
     # management port (9000) using bash's built-in /dev/tcp, which is available
     # in the image.
     healthcheck:
-      # The keycloak:25.0 image ships no curl/wget (UBI-micro), and the health
-      # endpoint on 9000 is HTTPS — so the old `curl http://...9000` probe always
-      # exited 127 (curl: command not found) and the service never went healthy.
-      # Mirror the dsp service: try curl (for images that have it), else a bash
-      # /dev/tcp connect to the HTTPS auth port that dependents actually use.
+      # Confirm that the HTTPS management listener is accepting TCP connections
+      # without relying on an HTTP client that is absent from the image.
       test:
         - CMD-SHELL
         - timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000' >/dev/null 2>&1

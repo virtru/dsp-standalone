@@ -124,11 +124,11 @@ realms:
           directAccessGrantsEnabled: true
           publicClient: true
           redirectUris:
-           # WARNING: This is a local development configuration. Do not use in production.
+            # WARNING: This is a local development configuration. Do not use in production.
             - '*'
           webOrigins:
-           # WARNING: This is a local development configuration. Do not use in production.
-             - '*'
+            # WARNING: This is a local development configuration. Do not use in production.
+            - '*'
           protocolMappers:
             - *customAudMapper
             # Allows COP frontend tokens to be accepted by the S4 proxy.
