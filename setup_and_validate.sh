@@ -1281,6 +1281,9 @@ open('dsp.yaml', 'w').write(content)
     log_info "Running: docker compose up -d (--no-build: using cached images)"
     docker compose up -d
   else
+    if [[ ! -f "$SCRIPT_DIR/sample.federal_policy.yaml" ]]; then
+      die "Required federal policy file is missing: $SCRIPT_DIR/sample.federal_policy.yaml\nCopy samples/defaults/federal.yaml from the DSP $DSP_BUNDLE_RELEASE bundle or rerun setup with --bundle /path/to/bundle."
+    fi
     log_info "Running: docker compose build --build-arg DSP_IMAGE=${DSP_IMAGE}"
     docker compose build --build-arg "DSP_IMAGE=${DSP_IMAGE}"
     log_info "Running: docker compose up -d"
