@@ -340,7 +340,7 @@ main() {
   log_ok "Using tagging config: $CONFIG_FILE"
   log_ok "Namespaces under test: ${REQUESTED_NAMESPACES[*]}"
 
-  TMP_DIR="$(mktemp -d)"
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dsp-standalone-tagging.XXXXXX")"
   trap 'rm -rf "$TMP_DIR"' EXIT
 
   namespace_requested federal && run_federal_suite

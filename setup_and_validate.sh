@@ -1624,7 +1624,7 @@ if [[ "$SDK_VALIDATION" == "true" ]]; then
       else
         # --- Build all programs first ----------------------------------------
         log_info "Building Go programs..."
-        BUILD_DIR=$(mktemp -d)
+        BUILD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dsp-standalone-sdk.XXXXXX")
 
         BIN_TOY="$BUILD_DIR/toySDK"
         BIN_BOB="$BUILD_DIR/bobTestAlexFile"
