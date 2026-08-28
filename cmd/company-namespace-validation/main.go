@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -124,13 +125,25 @@ func main() {
 		os.Exit(1)
 	}
 	if err := hrReader.Init(ctx); err != nil {
+		if !errors.Is(err, otdf.ErrRewrapForbidden) {
+			fmt.Printf("FAILURE: HR access check failed for a reason other than policy denial: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println("SUCCESS: Company namespace policy enforced as expected")
 		fmt.Printf("Engineering user decrypted %s; HR user was denied: %v\n", companyTDFPath, err)
 		return
 	}
 
 	hrPlaintext := &bytes.Buffer{}
-	hrReader.WriteTo(hrPlaintext) //nolint:errcheck
+	if _, err := hrReader.WriteTo(hrPlaintext); err != nil {
+		if errors.Is(err, otdf.ErrRewrapForbidden) {
+			fmt.Println("SUCCESS: Company namespace policy enforced as expected")
+			fmt.Printf("Engineering user decrypted %s; HR user was denied: %v\n", companyTDFPath, err)
+			return
+		}
+		fmt.Printf("FAILURE: HR decryption failed for a reason other than policy denial: %v\n", err)
+		os.Exit(1)
+	}
 	fmt.Println("FAILURE: HR user unexpectedly decrypted engineering-only company data")
 	fmt.Println(hrPlaintext.String())
 	os.Exit(1)
