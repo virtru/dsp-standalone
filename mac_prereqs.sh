@@ -13,7 +13,9 @@ if ! command -v brew &> /dev/null; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   # Add brew to PATH for Apple Silicon
   if [[ "$(uname -m)" == "arm64" ]]; then
-    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+    # Preserve command substitution for future shells.
+    # shellcheck disable=SC2016
+    printf '%s\n' 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zprofile"
     eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 else
@@ -93,7 +95,11 @@ echo "=== Installing nvm (Node Version Manager) ==="
 if [ ! -d "$HOME/.nvm" ]; then
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # nvm is downloaded at runtime.
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh"
+  fi
   nvm install --lts
 fi
 
@@ -134,78 +140,16 @@ else
 fi
 
 # ------------------------------------------------------------
-# Detect architecture
-# ------------------------------------------------------------
-ARCH_RAW=$(uname -m)
-case "$ARCH_RAW" in
-  x86_64)        ARCH="amd64" ;;
-  arm64)         ARCH="arm64" ;;
-  *) echo "Unsupported architecture: $ARCH_RAW"; exit 1 ;;
-esac
-echo "=== Detected architecture: darwin/${ARCH} ==="
-
-# ------------------------------------------------------------
-# DSP Bundle — unpack binary and grpcurl
-# ------------------------------------------------------------
-echo "=== DSP Bundle Setup ==="
-echo ""
-echo "  The Virtru DSP bundle is a .tar.gz file (e.g. virtru-dsp-bundle-X.X.X.tar.gz)."
-echo ""
-
-BUNDLE_TAR=""
-while true; do
-  read -rp "  Enter path to the Virtru DSP bundle .tar.gz file: " BUNDLE_TAR
-  BUNDLE_TAR="${BUNDLE_TAR/#\~/$HOME}"
-  if [[ -z "$BUNDLE_TAR" ]]; then
-    echo "  Path cannot be empty."
-    continue
-  fi
-
-  if [[ ! -f "$BUNDLE_TAR" ]]; then
-    echo "  File not found: $BUNDLE_TAR"
-    continue
-  fi
-  break
-done
-
-echo "Unpacking bundle: $BUNDLE_TAR"
-mkdir -p virtru-dsp-bundle
-tar -xvf "$BUNDLE_TAR" -C virtru-dsp-bundle/
-cd virtru-dsp-bundle/
-
-# Unpack DSP binary for darwin/${ARCH}
-DSP_TAR=$(ls tools/dsp/data-security-platform_*_darwin_${ARCH}.tar.gz 2>/dev/null | head -1)
-if [[ -z "$DSP_TAR" ]]; then
-  echo "ERROR: Could not find DSP binary for darwin/${ARCH} in tools/dsp/"
-  exit 1
-fi
-echo "Unpacking DSP binary: $DSP_TAR"
-tar -xvf "$DSP_TAR"
-
-# Unpack grpcurl for macOS/${ARCH} (uses "osx" in filename)
-GRPCURL_TAR=$(ls tools/grpcurl/grpcurl_*_osx_${ARCH}.tar.gz 2>/dev/null | head -1)
-if [[ -z "$GRPCURL_TAR" ]]; then
-  echo "ERROR: Could not find grpcurl for osx/${ARCH} in tools/grpcurl/"
-  exit 1
-fi
-echo "Unpacking grpcurl: $GRPCURL_TAR"
-tar -xvf "$GRPCURL_TAR"
-
-chmod +x ./grpcurl
-echo "DSP bundle unpacked successfully."
-
-cd ..
-
-# ------------------------------------------------------------
 # Post-install instructions
 # ------------------------------------------------------------
-echo "===================================="
 echo "===================================="
 echo "=== Prerequisite Setup Complete! ==="
 echo ""
 echo "1. If nvm was just installed, open a new terminal tab or run:"
 echo "   source ~/.zshrc  (or ~/.bash_profile)"
-echo "2. Continue to the TLS certificate generation step in README.md."
-echo "   Run setup_and_validate.sh to generate keys and start the stack."
+echo "2. Start the DSP stack with the supported bundle:"
+echo "   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz"
+echo ""
+echo "See README.md for the quick start and validation options."
 echo ""
 echo "===================================="

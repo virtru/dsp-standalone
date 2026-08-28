@@ -1,14 +1,13 @@
 #!/bin/bash
 # Installs all prerequisite software for the Virtru DSP on Red Hat Enterprise Linux 8
 #
-# Supported platforms:
+# Configured platforms:
 #   - Host OS:        RHEL 8 (amd64 or arm64)
 #   - Containers:     linux/amd64  (DSP Docker images are amd64-only)
-#   - Host arch:      amd64 (x86_64) or arm64 (aarch64)
+#   - Validation:     experimental; not revalidated in this release update
 #
 # Note: The DSP Docker images are built for linux/amd64. Running on an arm64 RHEL
-# host requires hardware-level amd64 emulation (e.g. QEMU), which is not recommended
-# for production use and may impact performance.
+# host requires hardware-level amd64 emulation (e.g. QEMU) and may impact performance.
 #
 # Note: RHEL 8 ships with Podman by default. This script installs Docker CE from
 # the official Docker repository. podman-docker (if present) will be removed to
@@ -16,10 +15,14 @@
 
 set +e  # do not exit on individual step failures — setup_and_validate.sh handles continuation
 
+if [[ $EUID -eq 0 ]]; then
+  echo "Do not run rhel_prereqs.sh with sudo or as root. Run it as your normal user; the script invokes sudo only for system-level changes." >&2
+  exit 1
+fi
+
 # ------------------------------------------------------------
 # Architecture detection
-#   HOST_ARCH  — the real CPU architecture; used for installing
-#                native tools (Go, grpcurl, DSP binary)
+#   HOST_ARCH  — the real CPU architecture; used for installing native tools
 #   CONTAINER_ARCH — always amd64; DSP Docker images are
 #                    linux/amd64-only regardless of host CPU
 # ------------------------------------------------------------
@@ -53,6 +56,7 @@ fi
 
 echo "=== Installing core dependencies ==="
 sudo dnf install -y \
+  dnf-plugins-core \
   gcc \
   make \
   curl \
@@ -119,7 +123,11 @@ echo "=== Installing nvm (Node Version Manager) ==="
 if [ ! -d "$HOME/.nvm" ]; then
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # nvm is downloaded at runtime.
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh"
+  fi
   nvm install --lts
 fi
 
@@ -127,14 +135,16 @@ fi
 # Go (Golang)
 # ------------------------------------------------------------
 echo "=== Installing Go (Golang) ==="
-GO_VERSION="1.23.2"
+GO_VERSION="1.25.13"
 if ! command -v go &> /dev/null; then
   GO_TAR="go${GO_VERSION}.linux-${HOST_ARCH}.tar.gz"
   wget -P /tmp "https://go.dev/dl/${GO_TAR}"
   sudo rm -rf /usr/local/go
   sudo tar -C /usr/local -xzf "/tmp/${GO_TAR}"
   rm "/tmp/${GO_TAR}"
-  echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+  # Preserve PATH expansion for future shells.
+  # shellcheck disable=SC2016
+  printf '%s\n' 'export PATH=$PATH:/usr/local/go/bin' >> "$HOME/.bashrc"
   export PATH=$PATH:/usr/local/go/bin   # take effect in this session
   echo "Go installed: $(go version)"
 fi
@@ -166,27 +176,6 @@ if ! command -v cosign &> /dev/null; then
 fi
 
 # ------------------------------------------------------------
-# grpcurl (gRPC command-line client)
-# ------------------------------------------------------------
-echo "=== Installing grpcurl ==="
-# grpcurl uses x86_64 in release filenames where other tools use amd64
-case "$HOST_ARCH" in
-  amd64) GRPCURL_ARCH="x86_64" ;;
-  arm64) GRPCURL_ARCH="arm64" ;;
-esac
-if ! command -v grpcurl &> /dev/null; then
-  GRPCURL_VERSION=$(curl -fsSL https://api.github.com/repos/fullstorydev/grpcurl/releases/latest | grep tag_name | cut -d'"' -f4)
-  curl -fsSLo /tmp/grpcurl.tar.gz "https://github.com/fullstorydev/grpcurl/releases/download/${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION#v}_linux_${GRPCURL_ARCH}.tar.gz"
-  tar -xzf /tmp/grpcurl.tar.gz -C /tmp grpcurl
-  sudo mv /tmp/grpcurl /usr/local/bin/grpcurl
-  sudo chmod +x /usr/local/bin/grpcurl
-  rm -f /tmp/grpcurl.tar.gz
-  echo "grpcurl installed: $(grpcurl --version 2>&1)"
-else
-  echo "grpcurl already installed — $(grpcurl --version 2>&1)"
-fi
-
-# ------------------------------------------------------------
 # Add local-dsp.virtru.com to /etc/hosts if not already present
 # ------------------------------------------------------------
 echo "=== Ensuring local-dsp.virtru.com is mapped in /etc/hosts ==="
@@ -198,80 +187,15 @@ else
 fi
 
 # ------------------------------------------------------------
-# DSP Bundle — unpack binary and grpcurl
-# ------------------------------------------------------------
-echo "=== DSP Bundle Setup ==="
-echo ""
-echo "  The Virtru DSP bundle is a .tar.gz file (e.g. virtru-dsp-bundle-X.X.X.tar.gz)."
-echo ""
-
-# Use the real user's home directory — $HOME resolves to /root when run with sudo
-REAL_HOME=$(eval echo "~${SUDO_USER:-$USER}")
-
-BUNDLE_TAR=""
-while true; do
-  read -rp "  Enter path to the Virtru DSP bundle .tar.gz file: " BUNDLE_TAR
-  BUNDLE_TAR="${BUNDLE_TAR/#\~/$REAL_HOME}"
-  if [[ -z "$BUNDLE_TAR" ]]; then
-    echo "  Path cannot be empty."
-    continue
-  fi
-  if [[ ! -f "$BUNDLE_TAR" ]]; then
-    echo "  File not found: $BUNDLE_TAR"
-    continue
-  fi
-  # Validate file type by magic bytes — faster and more reliable than tar -tzf on RHEL
-  FILE_TYPE=$(file -b "$BUNDLE_TAR" 2>/dev/null)
-  if ! echo "$FILE_TYPE" | grep -qi "gzip compressed"; then
-    echo "  File does not appear to be a gzip archive: $BUNDLE_TAR"
-    echo "  Detected type: ${FILE_TYPE:-unknown}"
-    echo "  Expected a .tar.gz file (e.g. virtru-dsp-bundle-X.X.X.tar.gz)."
-    continue
-  fi
-  break
-done
-
-echo "Unpacking bundle: $BUNDLE_TAR"
-mkdir -p virtru-dsp-bundle
-if ! tar -xvf "$BUNDLE_TAR" -C virtru-dsp-bundle/; then
-  echo "ERROR: Failed to extract bundle: $BUNDLE_TAR"
-  echo "Ensure the file is a valid .tar.gz archive and is not corrupted."
-  exit 1
-fi
-cd virtru-dsp-bundle/
-
-# Unpack DSP binary — uses HOST_ARCH (native binary for this machine)
-DSP_TAR=$(ls tools/dsp/data-security-platform_*_linux_${HOST_ARCH}.tar.gz 2>/dev/null | head -1)
-if [[ -z "$DSP_TAR" ]]; then
-  echo "ERROR: Could not find DSP binary for linux/${HOST_ARCH} in tools/dsp/"
-  exit 1
-fi
-echo "Unpacking DSP binary: $DSP_TAR"
-tar -xvf "$DSP_TAR"
-
-# Unpack grpcurl — bundle uses x86_64 naming (not amd64)
-GRPCURL_TAR=$(ls tools/grpcurl/grpcurl_*_linux_${GRPCURL_ARCH}.tar.gz 2>/dev/null | head -1)
-if [[ -z "$GRPCURL_TAR" ]]; then
-  echo "ERROR: Could not find grpcurl for linux/${GRPCURL_ARCH} in tools/grpcurl/"
-  exit 1
-fi
-echo "Unpacking grpcurl: $GRPCURL_TAR"
-tar -xvf "$GRPCURL_TAR"
-
-chmod +x ./grpcurl
-echo "DSP bundle unpacked successfully."
-
-cd ..
-
-# ------------------------------------------------------------
 # Post-install instructions
 # ------------------------------------------------------------
 echo "===================================="
-echo "===================================="
 echo "=== Prerequisite Setup Complete! ==="
 echo ""
+echo "1. Run 'newgrp docker', or log out and back in, so Docker group membership takes effect."
+echo "2. Start the DSP stack with the supported bundle:"
+echo "   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz"
 echo ""
-echo "1. Reboot or log out/in for Docker group and ~/.bashrc changes to take effect."
-echo "2. Continue to Step 1 in startupInstructions.md/README.md to start the COP services."
+echo "See README.md for the quick start and validation options."
 echo ""
 echo "===================================="

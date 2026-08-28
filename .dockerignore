@@ -1,0 +1,2 @@
+# Exclude ephemeral GitHub Actions GCP credential files from Docker build context.
+gha-creds-*.json

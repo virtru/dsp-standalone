@@ -1,13 +1,35 @@
-.idea/
-sample.federal_policy.yaml
-__pycache__/
-.DS_Store
+# Local DSP bundles and generated runtime state
+/virtru-dsp-bundle-*.tar.gz
+/virtru-dsp-bundle
+/.generated/
 
-# Virtru DSP Bundle
-virtru-dsp-bundle-*.tar.gz
-virtru-dsp-bundle/
-# Keys directory and other secrets
-dsp-keys/
+# Keys and other local credentials
+/dsp-keys/
 *Key.pem
-pkg/license/keys/dev_private.pem
-pkg/license/keys/dev_public.pem
+/pkg/license/keys/dev_private.pem
+/pkg/license/keys/dev_public.pem
+gha-creds-*.json
+
+# Generated policy input
+/sample.federal_policy.yaml
+
+# Local SDK validation artifacts
+/*.tdf
+/toySDK
+/bobTestAlexFile
+/aliceTestAlexFile
+/companyNamespaceValidation
+
+# Default outputs from building individual cmd packages without -o
+/toy-sdk
+/bob-test-alex-file
+/alice-test-alex-file
+/company-namespace-validation
+
+# Tool and editor artifacts
+/.idea/
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.iml
+*.bak

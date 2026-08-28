@@ -1,0 +1,160 @@
+attributes:
+  - namespace: company.com
+    attributes:
+      - name: department
+        rule: ANY_OF
+        values:
+          - value: Engineering
+          - value: HR
+          - value: Accounting
+          - value: Sales
+      - name: sensitivity
+        rule: HIERARCHY
+        values:
+          - value: confidential
+          - value: public
+      - name: classification
+        rule: ALL_OF
+        values:
+          - value: PII
+          - value: PCI
+          - value: PHI
+          - value: MNPI
+
+subject_mappings:
+  sm_company_department_engineering:
+    attribute_value: company.com/attr/department/value/Engineering
+    subject_condition_set_name: scs_company_department_engineering
+    actions:
+      - read
+  sm_company_department_hr:
+    attribute_value: company.com/attr/department/value/HR
+    subject_condition_set_name: scs_company_department_hr
+    actions:
+      - read
+  sm_company_department_accounting:
+    attribute_value: company.com/attr/department/value/Accounting
+    subject_condition_set_name: scs_company_department_accounting
+    actions:
+      - read
+  sm_company_department_sales:
+    attribute_value: company.com/attr/department/value/Sales
+    subject_condition_set_name: scs_company_department_sales
+    actions:
+      - read
+  sm_company_sensitivity_confidential:
+    attribute_value: company.com/attr/sensitivity/value/confidential
+    subject_condition_set_name: scs_company_sensitivity_confidential
+    actions:
+      - read
+  sm_company_classification_pii:
+    attribute_value: company.com/attr/classification/value/PII
+    subject_condition_set_name: scs_company_classification_pii
+    actions:
+      - read
+  sm_company_classification_pci:
+    attribute_value: company.com/attr/classification/value/PCI
+    subject_condition_set_name: scs_company_classification_pci
+    actions:
+      - read
+  sm_company_classification_phi:
+    attribute_value: company.com/attr/classification/value/PHI
+    subject_condition_set_name: scs_company_classification_phi
+    actions:
+      - read
+  sm_company_classification_mnpi:
+    attribute_value: company.com/attr/classification/value/MNPI
+    subject_condition_set_name: scs_company_classification_mnpi
+    actions:
+      - read
+
+subject_condition_sets:
+  scs_company_department_engineering:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Engineering
+  scs_company_department_hr:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - HR
+  scs_company_department_accounting:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Accounting
+  scs_company_department_sales:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Sales
+  scs_company_sensitivity_confidential:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Engineering
+                  - HR
+                  - Accounting
+                  - Sales
+  scs_company_classification_pii:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - HR
+                  - Accounting
+                  - Sales
+  scs_company_classification_pci:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Accounting
+  scs_company_classification_phi:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - HR
+  scs_company_classification_mnpi:
+    subject_sets:
+      - condition_groups:
+          - boolean_operator: CONDITION_BOOLEAN_TYPE_ENUM_OR
+            conditions:
+              - subject_external_selector_value: '.attributes.dept[]'
+                operator: SUBJECT_MAPPING_OPERATOR_ENUM_IN
+                subject_external_values:
+                  - Engineering
+                  - HR
+                  - Accounting
+                  - Sales

@@ -1,0 +1,56 @@
+resourceMappingSets:
+  - id: "company-classification-dict"
+    entries:
+      - terms: ["pii"]
+        attributevalue:
+          value: "pii"
+      - terms: ["pci"]
+        attributevalue:
+          value: "pci"
+      - terms: ["phi"]
+        attributevalue:
+          value: "phi"
+      - terms: ["mnpi"]
+        attributevalue:
+          value: "mnpi"
+  - id: "company-sensitivity-dict"
+    entries:
+      - terms: ["public"]
+        attributevalue:
+          value: "public"
+      - terms: ["confidential"]
+        attributevalue:
+          value: "confidential"
+
+tagExtractionRules:
+  - id: "company-sensitivity-extractor"
+    type: "regex"
+    regex: '"sensitivity"\s*:\s*"([^"]+)"'
+    textProcessingMode: ALL
+    stopMode: FIRST_MATCH
+    scope:
+      contentEval:
+        sources:
+          - BODY
+    captureGroups:
+      - group: "1"
+        tagTemplates:
+          - type: "ATTRIBUTE"
+            namespace: "https://company.com/attr/sensitivity"
+            synonymDictionary: "company-sensitivity-dict"
+
+  - id: "company-classification-extractor"
+    type: "regex"
+    regex: '"(pii|pci|phi|mnpi)"'
+    textProcessingMode: ALL
+    stopMode: NONE
+    scope:
+      contentEval:
+        sources:
+          - BODY
+    captureGroups:
+      - group: "1"
+        tagTemplates:
+          - type: "ATTRIBUTE"
+            namespace: "https://company.com/attr/classification"
+            synonymDictionary: "company-classification-dict"
