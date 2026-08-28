@@ -22,7 +22,14 @@ EXPORT_FILE="${EXPORT_FILE:-$SCRIPT_DIR/company.com-export.yaml}"
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
 locate_tructl() {
-  if [[ -n "${TRUCTL:-}" ]]; then printf '%s' "$TRUCTL"; return; fi
+  if [[ -n "${TRUCTL:-}" ]]; then
+    if [[ ! -x "$TRUCTL" ]]; then
+      echo "TRUCTL is not executable: $TRUCTL" >&2
+      return 1
+    fi
+    printf '%s' "$TRUCTL"
+    return
+  fi
   local c
   for c in \
     "$SCRIPT_DIR"/../virtru-dsp-bundle*/tructl \

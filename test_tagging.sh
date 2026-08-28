@@ -92,6 +92,8 @@ find_tructl() {
     "$SCRIPT_DIR/virtru-dsp-bundle"/tools/dsp/*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tools/dsp/*/tructl
+    "$SCRIPT_DIR"/.generated/virtru-dsp-bundle-*/tructl
+    "$SCRIPT_DIR"/.generated/virtru-dsp-bundle-*/tools/dsp/*/tructl
   )
   local candidate=""
   for candidate in "${candidates[@]}"; do

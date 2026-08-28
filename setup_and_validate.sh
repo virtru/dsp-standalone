@@ -1723,7 +1723,11 @@ else
     TAGGING_TEST_ARGS+=(--namespace company)
   fi
 
-  if bash "$SCRIPT_DIR/test_tagging.sh" "${TAGGING_TEST_ARGS[@]}"; then
+  TAGGING_TRUCTL="$(find_tructl)" || true
+  if [[ -z "$TAGGING_TRUCTL" ]]; then
+    check_fail "Tagging validation could not locate tructl in the selected DSP bundle"
+    ERRORS+=("Tagging validation could not locate the selected bundle's tructl binary")
+  elif TRUCTL="$TAGGING_TRUCTL" bash "$SCRIPT_DIR/test_tagging.sh" "${TAGGING_TEST_ARGS[@]}"; then
     check_pass "Tagging validation passed"
   else
     check_fail "Tagging validation failed"
