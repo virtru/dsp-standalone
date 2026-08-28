@@ -38,6 +38,7 @@ Options:
   --skip-prereqs            Skip prerequisite installation; verify tools only
   --no-build                Reuse previously built Compose images
   --validate-only           Validate an already-running stack without starting it
+  --sdk-validation          Run Go SDK validation (enabled by default)
   --sdk-only                Run only the Go SDK validation programs
   -h, --help                Show this help
 
