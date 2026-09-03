@@ -828,11 +828,30 @@ select_bundle() {
       continue
     fi
     normalize_bundle_path
-    if [[ ! -e "$BUNDLE_PATH" ]]; then
-      log_warn "Bundle path not found: $BUNDLE_PATH"
+    set_bundle_release_from_path "$BUNDLE_PATH"
+
+    if [[ -f "$BUNDLE_PATH" ]]; then
+      if [[ "$BUNDLE_PATH" != *.tar.gz ]]; then
+        log_warn "Expected a Virtru DSP bundle .tar.gz file or an unpacked bundle directory."
+        continue
+      fi
+      if ! unpack_bundle_archive "$BUNDLE_PATH"; then
+        log_warn "Could not prepare DSP bundle from $BUNDLE_PATH"
+        continue
+      fi
+      BUNDLE_DIR="$UNPACKED_BUNDLE_DIR"
+    elif [[ -d "$BUNDLE_PATH" ]]; then
+      if ! ensure_bundle_directory_ready "$BUNDLE_PATH"; then
+        log_warn "Could not prepare DSP bundle from $BUNDLE_PATH"
+        continue
+      fi
+      BUNDLE_DIR="$BUNDLE_PATH"
+    else
+      log_warn "DSP bundle path not found: $BUNDLE_PATH"
       continue
     fi
-    prepare_bundle_input "$BUNDLE_PATH"
+
+    log_ok "Using DSP bundle $DSP_BUNDLE_RELEASE from $BUNDLE_DIR"
     return 0
   done
 }
