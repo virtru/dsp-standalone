@@ -698,8 +698,7 @@ ensure_bundle_directory_ready() {
   fi
 
   bundle_platform_version=$("$bundle_dir/dsp" version 2>&1 \
-    | awk '$1 == "Version:" { print $2; exit }')
-  normalized_bundle_platform_version="${bundle_platform_version#v}"
+    | awk '$1 == "Version:" { print $2; exit }' || true)
   if [[ ! "$normalized_bundle_platform_version" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z.-]+)?$ ]]; then
     log_fail "Could not detect a valid DSP platform version from $bundle_dir/dsp"
     log_fail "Reported version: ${bundle_platform_version:-unknown}"
