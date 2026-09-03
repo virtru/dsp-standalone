@@ -1,0 +1,199 @@
+# company.com policy — logical definition (tructl export / import format).
+#
+# This is the expected shape of `tructl export -n company.com --no-bundle`.
+# It is produced for review and as an importable fallback (`tructl import`).
+# When constructed against a live stack via create_company_policy.sh, re-run
+# `tructl export` to capture platform-assigned ids and key references.
+#
+# Attribute rules:  ALL_OF = 1, ANY_OF = 2, HIERARCHY = 3
+# Condition operator: IN = 1     Boolean operator: AND = 1
+#
+# Entitlement model (resolved from each user's Keycloak `dept` attribute):
+#   - ANY dept            -> sensitivity/confidential  (+ public via hierarchy)
+#   - dept == Engineering -> classification: mnpi
+#   - dept == HR          -> classification: mnpi, pii, phi
+#   - dept == Accounting  -> classification: mnpi, pii, pci
+#   - dept == Sales       -> classification: mnpi, pii
+#   - dept == <value>     -> department/<value>
+namespaces:
+  - name: company.com
+    fqn: https://company.com
+    attributes:
+      # ----------------------------------------------------------------------
+      - name: department
+        rule: 2 # ANY_OF
+        fqn: https://company.com/attr/department
+        values:
+          - value: engineering
+            fqn: https://company.com/attr/department/value/engineering
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Engineering
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [engineering, eng]
+          - value: hr
+            fqn: https://company.com/attr/department/value/hr
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - HR
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [hr, "human resources"]
+          - value: accounting
+            fqn: https://company.com/attr/department/value/accounting
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Accounting
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [accounting, finance]
+          - value: sales
+            fqn: https://company.com/attr/department/value/sales
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Sales
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [sales]
+
+      # ----------------------------------------------------------------------
+      # Hierarchy order: confidential (highest) > public. Entitlement to
+      # confidential implies access to public-tagged data.
+      - name: sensitivity
+        rule: 3 # HIERARCHY
+        fqn: https://company.com/attr/sensitivity
+        values:
+          - value: confidential
+            fqn: https://company.com/attr/sensitivity/value/confidential
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            # ANY dept value present => internal => confidential
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Engineering
+                                - HR
+                                - Accounting
+                                - Sales
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [confidential, internal]
+          - value: public
+            fqn: https://company.com/attr/sensitivity/value/public
+            # No subject mapping: anyone entitled to confidential (higher in the
+            # hierarchy) can already read public-tagged data.
+            resource_mappings:
+              - terms: [public, unrestricted]
+
+      # ----------------------------------------------------------------------
+      - name: classification
+        rule: 1 # ALL_OF
+        fqn: https://company.com/attr/classification
+        values:
+          - value: pii
+            fqn: https://company.com/attr/classification/value/pii
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - HR
+                                - Accounting
+                                - Sales
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [pii, "personally identifiable information"]
+          - value: pci
+            fqn: https://company.com/attr/classification/value/pci
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Accounting
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [pci, "payment card"]
+          - value: phi
+            fqn: https://company.com/attr/classification/value/phi
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - HR
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [phi, "protected health information"]
+          - value: mnpi
+            fqn: https://company.com/attr/classification/value/mnpi
+            subject_mappings:
+              - subject_condition_set:
+                  subject_sets:
+                    - condition_groups:
+                        - boolean_operator: 1
+                          conditions:
+                            - subject_external_selector_value: .attributes.dept[]
+                              operator: 1
+                              subject_external_values:
+                                - Engineering
+                                - HR
+                                - Accounting
+                                - Sales
+                actions:
+                  - name: read
+            resource_mappings:
+              - terms: [mnpi, "material non-public information"]

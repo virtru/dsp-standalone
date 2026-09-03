@@ -53,10 +53,8 @@ services:
     realm: 'opentdf'
     tokenendpoint: *tokenEndpoint
   taggingpdp:
-    configFilePath: "dsp.yaml"
+    configFilePath: "/config/tagging-pdp-workflows.yaml"
     tikaServerUrl: "http://localhost:9998"
-  sharepoint:
-    encryptedSearchKeyPath: dsp-keys/encrypted-search.key
   # Other PEP services (outlook, shared, tdfviewer, web-admin)
   # are intentionally omitted — this is a standalone core DSP deployment.
 server:

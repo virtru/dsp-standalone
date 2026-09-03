@@ -25,6 +25,40 @@ realms:
           mygroupattribute:
             - mygroupvalue
     clients:
+      # S4 (secure object proxy) backend service client. Required for the COP
+      # "Start Simulation" flow when the cop stack is run with --profile s4:
+      # the s4 container authenticates as this client, and add_manifests.py /
+      # seed_data.py use secure-object-proxy-test below to upload manifests.
+      - client:
+          clientID: secure-object-proxy
+          enabled: true
+          name: secure-object-proxy
+          serviceAccountsEnabled: true
+          clientAuthenticatorType: client-secret
+          secret: secret
+          protocolMappers:
+            - *customAudMapper
+        sa_realm_roles:
+          - opentdf-org-admin
+      - client:
+          clientID: secure-object-proxy-test
+          enabled: true
+          name: secure-object-proxy-test
+          serviceAccountsEnabled: true
+          clientAuthenticatorType: client-secret
+          directAccessGrantsEnabled: true
+          secret: secret
+          protocolMappers:
+            - *customAudMapper
+            - name: secure-object-proxy-audience-mapper
+              protocol: openid-connect
+              protocolMapper: oidc-audience-mapper
+              config:
+                included.client.audience: secure-object-proxy
+                access.token.claim: 'true'
+                id.token.claim: 'true'
+        sa_realm_roles:
+          - opentdf-standard
       - client:
           clientID: opentdf
           enabled: true
@@ -94,9 +128,17 @@ realms:
             - '*'
           webOrigins:
            # WARNING: This is a local development configuration. Do not use in production.
-            - '*'
+             - '*'
           protocolMappers:
             - *customAudMapper
+            # Allows COP frontend tokens to be accepted by the S4 proxy.
+            - name: secure-object-proxy-audience-mapper
+              protocol: openid-connect
+              protocolMapper: oidc-audience-mapper
+              config:
+                included.client.audience: secure-object-proxy
+                access.token.claim: 'true'
+                id.token.claim: 'true'
     users:
       #  With Keycloak idP attributes below, the user below is entitled through Subject Mappings/Subject Condition Sets to DSP policy Attribute Values:
       # | Attribute Definition FQN              | Entitled To Forms/Data of Values    | Attribute Rule Type            |
@@ -223,6 +265,74 @@ realms:
             - BBB
           clearance:
             - TS
+        realmRoles:
+          - opentdf-standard
+      # ----------------------------------------------------------------------
+      # company.com namespace sample users (see company-policy/).
+      # Each user carries a single Keycloak `dept` attribute. The company.com
+      # subject mappings resolve entitlements from that dept value:
+      #   - ANY dept           -> sensitivity/confidential (+ public via hierarchy)
+      #   - dept == Engineering-> classification: mnpi
+      #   - dept == HR         -> classification: mnpi, pii, phi
+      #   - dept == Accounting -> classification: mnpi, pii, pci
+      #   - dept == Sales      -> classification: mnpi, pii
+      #   - dept value         -> the matching department/<value>
+      # | Attribute Definition FQN                 | Rule Type |
+      # |------------------------------------------|-----------|
+      # | https://company.com/attr/department      | any_of    |
+      # | https://company.com/attr/sensitivity     | hierarchy |
+      # | https://company.com/attr/classification  | all_of    |
+      # ----------------------------------------------------------------------
+      - username: eng-user
+        enabled: true
+        firstName: Erin
+        lastName: Engineering
+        email: erin@company.com
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Engineering
+        realmRoles:
+          - opentdf-standard
+      - username: hr-user
+        enabled: true
+        firstName: Hana
+        lastName: HumanResources
+        email: hana@company.com
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - HR
+        realmRoles:
+          - opentdf-standard
+      - username: accounting-user
+        enabled: true
+        firstName: Amir
+        lastName: Accounting
+        email: amir@company.com
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Accounting
+        realmRoles:
+          - opentdf-standard
+      - username: sales-user
+        enabled: true
+        firstName: Sara
+        lastName: Sales
+        email: sara@company.com
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Sales
         realmRoles:
           - opentdf-standard
     token_exchanges:

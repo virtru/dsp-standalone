@@ -1,0 +1,81 @@
+realms:
+  - realm_repepresentation:
+      realm: opentdf
+      enabled: true
+    users:
+      #  With Keycloak idP attributes below, the user below is entitled through Subject Mappings/Subject Condition Sets to DSP policy Attribute Values:
+      # | Attribute Definition FQN                | Entitled To Forms/Data of Values   | Attribute Rule Type            |
+      # |-----------------------------------------|------------------------------------|--------------------------------|
+      # | https://company.com/attr/department     | Engineering                        | any_of                         |
+      # | https://company.com/attr/sensitivity    | confidential, public               | hierarchy                      |
+      # | https://company.com/attr/classification | MNPI                               | all_of                         |
+      - username: engineering-company-user
+        enabled: true
+        firstName: Erin
+        lastName: Engineering
+        email: engineering@company.com
+        realmRoles:
+          - opentdf-standard
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Engineering
+      #  With Keycloak idP attributes below, the user below is entitled through Subject Mappings/Subject Condition Sets to DSP policy Attribute Values:
+      # | Attribute Definition FQN                | Entitled To Forms/Data of Values   | Attribute Rule Type            |
+      # |-----------------------------------------|------------------------------------|--------------------------------|
+      # | https://company.com/attr/department     | HR                                 | any_of                         |
+      # | https://company.com/attr/sensitivity    | confidential, public               | hierarchy                      |
+      # | https://company.com/attr/classification | MNPI, PII, PHI                     | all_of                         |
+      - username: hr-company-user
+        enabled: true
+        firstName: Hannah
+        lastName: HR
+        email: hr@company.com
+        realmRoles:
+          - opentdf-standard
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - HR
+      #  With Keycloak idP attributes below, the user below is entitled through Subject Mappings/Subject Condition Sets to DSP policy Attribute Values:
+      # | Attribute Definition FQN                | Entitled To Forms/Data of Values   | Attribute Rule Type            |
+      # |-----------------------------------------|------------------------------------|--------------------------------|
+      # | https://company.com/attr/department     | Accounting                         | any_of                         |
+      # | https://company.com/attr/sensitivity    | confidential, public               | hierarchy                      |
+      # | https://company.com/attr/classification | PII, PCI, MNPI                     | all_of                         |
+      - username: accounting-company-user
+        enabled: true
+        firstName: Avery
+        lastName: Accounting
+        email: accounting@company.com
+        realmRoles:
+          - opentdf-standard
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Accounting
+      #  With Keycloak idP attributes below, the user below is entitled through Subject Mappings/Subject Condition Sets to DSP policy Attribute Values:
+      # | Attribute Definition FQN                | Entitled To Forms/Data of Values   | Attribute Rule Type            |
+      # |-----------------------------------------|------------------------------------|--------------------------------|
+      # | https://company.com/attr/department     | Sales                              | any_of                         |
+      # | https://company.com/attr/sensitivity    | confidential, public               | hierarchy                      |
+      # | https://company.com/attr/classification | MNPI, PII                          | all_of                         |
+      - username: sales-company-user
+        enabled: true
+        firstName: Sam
+        lastName: Sales
+        email: sales@company.com
+        realmRoles:
+          - opentdf-standard
+        credentials:
+          - value: testuser123
+            type: password
+        attributes:
+          dept:
+            - Sales

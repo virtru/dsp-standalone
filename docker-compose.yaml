@@ -11,10 +11,10 @@
 #
 # Excluded: COP web server, COP database, NiFi, tagging services.
 #
-# Prerequisites (same as the full dev stack):
+# Prerequisites:
 #   1. /etc/hosts contains:  127.0.0.1  local-dsp.virtru.com
 #   2. TLS certificates exist in ./dsp-keys/
-#      (generate with `make dev-certs` or `./ubuntu_cop_keys.sh`)
+#      (generate with `./setup_and_validate.sh --bundle /path/to/bundle`)
 #   3. DSP image is available in the local registry:
 #        docker run -d -p 5000:5000 --name registry registry:2
 #        ./dsp copy-images --insecure localhost:5000/virtru
@@ -41,7 +41,7 @@ services:
   # Keycloak (host-networked) connects via localhost:25434.
   #----------------------------------------------------------------
   keycloak-db:
-    image: postgres:16
+    image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
     restart: always
     user: postgres
     environment:
@@ -60,7 +60,7 @@ services:
   # Keycloak identity provider
   #----------------------------------------------------------------
   keycloak:
-    image: keycloak/keycloak:25.0
+    image: keycloak/keycloak:25.0@sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2
     restart: always
     command: ["start-dev"]
     network_mode: host
@@ -91,10 +91,20 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
+    # NOTE: the keycloak/keycloak:25.0 image ships without curl/wget, so the
+    # healthcheck cannot shell out to an HTTP client. The management interface
+    # is also HTTPS-only here (KC_HTTP_ENABLED=false). Probe readiness over the
+    # management port (9000) using bash's built-in /dev/tcp, which is available
+    # in the image.
     healthcheck:
+      # The keycloak:25.0 image ships no curl/wget (UBI-micro), and the health
+      # endpoint on 9000 is HTTPS — so the old `curl http://...9000` probe always
+      # exited 127 (curl: command not found) and the service never went healthy.
+      # Mirror the dsp service: try curl (for images that have it), else a bash
+      # /dev/tcp connect to the HTTPS auth port that dependents actually use.
       test:
         - CMD-SHELL
-        - curl -fs --max-time 5 http://localhost:9000/health/ready
+        - bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000' >/dev/null 2>&1
       interval: 10s
       timeout: 10s
       retries: 18
@@ -109,6 +119,8 @@ services:
       context: .
       dockerfile: ./dev.dsp.Dockerfile
       network: host
+      args:
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
     command:
       - tructl
       - provision
@@ -126,7 +138,7 @@ services:
   # DSP Postgres database
   #----------------------------------------------------------------
   dsp-db:
-    image: postgres:16
+    image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
     restart: always
     user: postgres
     environment:
@@ -150,11 +162,14 @@ services:
       context: .
       dockerfile: ./dev.dsp.Dockerfile
       network: host
+      args:
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
     command: ["start"]
     network_mode: host
     restart: always
     volumes:
       - ./dsp-keys:/dsp-keys:z
+      - ./.generated/tagging-pdp-workflows.yaml:/config/tagging-pdp-workflows.yaml:ro,z
     environment:
       DSP_DB_HOST: localhost
       DSP_DB_PORT: 35433
@@ -188,6 +203,8 @@ services:
       context: .
       dockerfile: ./dev.dsp.Dockerfile
       network: host
+      args:
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
     command:
       - tructl
       - provision

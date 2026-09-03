@@ -1,4 +1,4 @@
-// toySDK.go — OpenTDF SDK smoke test
+// Command toy-sdk runs an OpenTDF SDK smoke test.
 //
 // What it does:
 //   Authenticates as Alex (aaa@topsecret.usa, TS/USA) against the local DSP stack,
@@ -13,17 +13,16 @@
 //   - DSP stack running:  docker compose up --build
 //   - Go installed:       brew install go  (macOS)  or  see ubuntu_prereqs.sh
 //   - Dependencies fetched:
-//       go env -w GOPRIVATE=github.com/virtru-corp/*
-//       go mod tidy
+//       go mod download
 //
 // Build:
-//   go build -o toySDK toySDK.go
+//   go build -o toySDK ./cmd/toy-sdk
 //
 // Run (built binary):
 //   ./toySDK
 //
 // Run (without building):
-//   go run toySDK.go
+//   go run ./cmd/toy-sdk
 //
 // Output file:
 //   alex_test.tdf  (written to current directory)
@@ -48,10 +47,12 @@ import (
 )
 
 // randomString returns a cryptographically random URL-safe string of exactly n characters.
-func randomString(n int) string {
+func randomString(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)[:n]
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate random plaintext: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)[:n], nil
 }
 
 // shannonEntropy calculates the Shannon entropy (bits per byte) of the input.
@@ -101,7 +102,6 @@ func main() {
 	client, err := otdf.New(
 		"https://local-dsp.virtru.com:8080",
 		otdf.WithInsecureSkipVerifyConn(),
-		otdf.WithTokenEndpoint("https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token"),
 		otdf.WithOAuthAccessTokenSource(tokenSource),
 	)
 	if err != nil {
@@ -109,7 +109,11 @@ func main() {
 	}
 
 	// --- Step 1: Plaintext ---
-	plaintextStr := fmt.Sprintf("TOP SECRET\n%s\nTOP SECRET", randomString(140))
+	randomPlaintext, err := randomString(140)
+	if err != nil {
+		panic(err)
+	}
+	plaintextStr := fmt.Sprintf("TOP SECRET\n%s\nTOP SECRET", randomPlaintext)
 	fmt.Println("========================================")
 	fmt.Println("PLAINTEXT CONTENT:")
 	fmt.Println("========================================")

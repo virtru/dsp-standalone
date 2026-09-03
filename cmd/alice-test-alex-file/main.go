@@ -1,8 +1,8 @@
-// aliceTestAlexFile.go — OpenTDF SDK access denial test (Alice cannot read Alex's file)
+// Command alice-test-alex-file verifies that Alice cannot decrypt Alex's TDF.
 //
 // What it does:
 //   Authenticates as Alice (aaa@secret.usa, S/USA) and attempts to decrypt
-//   alex_test.tdf — the TDF created by toySDK.go as Alex (TS/USA).
+//   alex_test.tdf — the TDF created by toy-sdk as Alex (TS/USA).
 //
 //   Alice is NOT entitled to decrypt Alex's file because:
 //     - classification/topsecret: Alice only holds Secret (S) clearance, not Top Secret (TS)
@@ -15,12 +15,12 @@
 //
 // Prerequisites:
 //   - DSP stack running:       docker compose up --build
-//   - alex_test.tdf exists:    run toySDK.go first
+//   - alex_test.tdf exists:    run go run ./cmd/toy-sdk first
 //   - Go installed:            brew install go  (macOS)  or  see ubuntu_prereqs.sh
-//   - Dependencies fetched:    go mod tidy
+//   - Dependencies fetched:    go mod download
 //
 // Run:
-//   go run aliceTestAlexFile.go
+//   go run ./cmd/alice-test-alex-file
 //
 // Expected output:
 //   SUCCESS: Access correctly denied — Alice cannot decrypt a Top Secret file
@@ -68,7 +68,6 @@ func main() {
 	client, err := otdf.New(
 		"https://local-dsp.virtru.com:8080",
 		otdf.WithInsecureSkipVerifyConn(),
-		otdf.WithTokenEndpoint("https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token"),
 		otdf.WithOAuthAccessTokenSource(tokenSource),
 	)
 	if err != nil {
@@ -76,15 +75,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Open alex_test.tdf (created by toySDK.go) — do not modify it
+	// Open alex_test.tdf (created by toy-sdk) — do not modify it
 	tdfPath := "alex_test.tdf"
 	tdfFile, err := os.Open(tdfPath)
 	if err != nil {
 		fmt.Printf("FAILURE: Could not open %s: %v\n", tdfPath, err)
-		fmt.Println("Make sure toySDK.go has been run first to generate alex_test.tdf")
+		fmt.Println("Make sure go run ./cmd/toy-sdk has been run first to generate alex_test.tdf")
 		os.Exit(1)
 	}
-	defer tdfFile.Close()
+	defer func() {
+		if err := tdfFile.Close(); err != nil {
+			fmt.Printf("WARNING: Could not close %s: %v\n", tdfPath, err)
+		}
+	}()
 
 	// Attempt to decrypt — Alice should be denied at the KAS key unwrap step
 	tdfReader, err := client.LoadTDF(tdfFile)

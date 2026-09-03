@@ -5,10 +5,13 @@
 # Runs all prerequisites, starts the DSP-only Docker Compose stack, and
 # executes the full validation suite from the README.
 #
-# Supports: macOS (Intel + Apple Silicon), Ubuntu/Debian Linux (amd64 + arm64)
+# Configured for macOS, Ubuntu 24.04, and RHEL 8 (amd64 + arm64 hosts).
+# See README.md for the current validation status and emulation requirements.
 #
 # Usage:
 #   ./setup_and_validate.sh                              # full run: prereqs + infra checks + SDK validation
+#   ./setup_and_validate.sh --bundle /path/to/bundle     # use a supported bundle outside ./virtru-dsp-bundle
+#   ./setup_and_validate.sh --add-namespace company      # also provision the sample company namespace + users
 #   ./setup_and_validate.sh --skip-prereqs               # skip tool installs, go straight to keys/stack
 #   ./setup_and_validate.sh --no-build                   # start stack using cached images (no --build)
 #   ./setup_and_validate.sh --validate-only              # infra checks + SDK validation (no setup)
@@ -16,6 +19,34 @@
 # =============================================================================
 
 set -euo pipefail
+
+# Public DSP release supported by this local deployment. The downloadable
+# bundle and the platform container use separate version schemes.
+readonly DSP_BUNDLE_RELEASE="2.0.6.6"
+readonly DSP_PLATFORM_IMAGE_TAG="v2.7.14"
+readonly INVOCATION_DIR="$PWD"
+
+usage() {
+  cat <<EOF
+Usage: ./setup_and_validate.sh [options]
+
+Set up and validate the local Virtru DSP development stack.
+
+Options:
+  --bundle PATH             DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive
+  --add-namespace company   Provision and validate the optional company.com sample
+  --skip-prereqs            Skip prerequisite installation; verify tools only
+  --no-build                Reuse previously built Compose images
+  --validate-only           Validate an already-running stack without starting it
+  --sdk-only                Run only the Go SDK validation programs
+  -h, --help                Show this help
+
+Examples:
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE.tar.gz
+  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE.tar.gz
+  ./setup_and_validate.sh --validate-only --bundle .generated/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE
+EOF
+}
 
 # ---------------------------------------------------------------------------
 # Flags
@@ -25,13 +56,48 @@ VALIDATE_ONLY=false
 SDK_VALIDATION=true
 SDK_ONLY=false
 NO_BUILD=false
-for arg in "$@"; do
-  case "$arg" in
-    --skip-prereqs)    SKIP_PREREQS=true ;;
-    --validate-only)   VALIDATE_ONLY=true ;;
-    --sdk-validation)  SDK_VALIDATION=true ;;
-    --sdk-only)        SDK_ONLY=true; SDK_VALIDATION=true; VALIDATE_ONLY=true ;;
-    --no-build)        NO_BUILD=true ;;
+BUNDLE_PATH=""
+ADD_NAMESPACES=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-prereqs)    SKIP_PREREQS=true; shift ;;
+    --validate-only)   VALIDATE_ONLY=true; shift ;;
+    --sdk-validation)  SDK_VALIDATION=true; shift ;;
+    --sdk-only)        SDK_ONLY=true; SDK_VALIDATION=true; VALIDATE_ONLY=true; shift ;;
+    --no-build)        NO_BUILD=true; shift ;;
+    -h|--help)         usage; exit 0 ;;
+    --bundle)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "FATAL: --bundle requires a path to the DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive" >&2
+        exit 1
+      fi
+      BUNDLE_PATH="$2"
+      shift 2
+      ;;
+    --bundle=*)
+      BUNDLE_PATH="${1#*=}"
+      if [[ -z "$BUNDLE_PATH" ]]; then
+        echo "FATAL: --bundle requires a path to the DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive" >&2
+        exit 1
+      fi
+      shift
+      ;;
+    --add-namespace)
+      if [[ $# -lt 2 ]]; then
+        echo "FATAL: --add-namespace requires a value (supported: company)" >&2
+        exit 1
+      fi
+      ADD_NAMESPACES+=("$2")
+      shift 2
+      ;;
+    --add-namespace=*)
+      ADD_NAMESPACES+=("${1#*=}")
+      shift
+      ;;
+    *)
+      echo "FATAL: Unknown argument: $1" >&2
+      exit 1
+      ;;
   esac
 done
 
@@ -48,9 +114,63 @@ log_warn()    { echo -e "    ${YELLOW}⚠${NC}  $*"; }
 log_fail()    { echo -e "    ${RED}✗${NC} $*"; }
 die()         { echo -e "\n${RED}FATAL:${NC} $*\n" >&2; exit 1; }
 
+if [[ $EUID -eq 0 ]]; then
+  die "Do not run setup_and_validate.sh with sudo or as root. Run it as your normal user; the prerequisite scripts invoke sudo only for system-level changes."
+fi
+
 PASS=0; FAIL=0
+TAGGING_PDP_WORKFLOW_CHANGED=false
 check_pass() { log_ok "$1"; ((PASS++)) || true; }
 check_fail() { log_fail "$1"; ((FAIL++)) || true; }
+
+contains_item() {
+  local needle="$1"
+  shift || true
+  local item=""
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+normalize_requested_namespaces() {
+  local normalized=()
+  local ns=""
+  if [[ ${#ADD_NAMESPACES[@]} -eq 0 ]]; then
+    return 0
+  fi
+  for ns in "${ADD_NAMESPACES[@]}"; do
+    case "$ns" in
+      company)
+        if [[ ${#normalized[@]} -eq 0 ]] || ! contains_item "$ns" "${normalized[@]}"; then
+          normalized+=("$ns")
+        fi
+        ;;
+      "")
+        die "Namespace value cannot be empty"
+        ;;
+      *)
+        die "Unsupported namespace '$ns'. Supported values: company"
+        ;;
+    esac
+  done
+  if [[ ${#normalized[@]} -gt 0 ]]; then
+    ADD_NAMESPACES=("${normalized[@]}")
+  else
+    ADD_NAMESPACES=()
+  fi
+}
+
+namespace_requested() {
+  [[ ${#ADD_NAMESPACES[@]} -gt 0 ]] || return 1
+  contains_item "$1" "${ADD_NAMESPACES[@]}"
+}
+
+normalize_requested_namespaces
+
+if [[ "$SDK_ONLY" == true && ${#ADD_NAMESPACES[@]} -gt 0 ]]; then
+  die "--sdk-only cannot be combined with --add-namespace because SDK-only mode skips bundle staging and provisioning."
+fi
 
 # ---------------------------------------------------------------------------
 # OS / architecture detection
@@ -72,7 +192,7 @@ case "$ARCH_RAW" in
   *)             die "Unsupported architecture: $ARCH_RAW" ;;
 esac
 
-# HOST_ARCH  — native CPU arch; used for installing tools (Go, mkcert, grpcurl, DSP CLI)
+# HOST_ARCH  — native CPU arch; used for installing tools (Go, mkcert, DSP CLI)
 # CONTAINER_ARCH — always amd64; DSP Docker images are linux/amd64-only
 HOST_ARCH="$ARCH"
 CONTAINER_ARCH="amd64"
@@ -92,6 +212,11 @@ fi
 log_ok "OS: $OS_RAW  |  Host arch: ${OS}/${HOST_ARCH}  |  Container arch: linux/${CONTAINER_ARCH}"
 if [[ "$OS" == "linux" ]]; then
   log_ok "Linux distro: ${DISTRO_ID}  |  RHEL-family: ${IS_RHEL}"
+fi
+if [[ ${#ADD_NAMESPACES[@]} -gt 0 ]]; then
+  log_ok "Optional namespaces to add: ${ADD_NAMESPACES[*]}"
+else
+  log_ok "Optional namespaces to add: none"
 fi
 
 # RHEL-specific environment checks
@@ -135,12 +260,17 @@ if [[ "$IS_RHEL" == true ]]; then
       log_warn "iptables is using the nftables backend — Docker requires iptables-legacy."
       log_warn "Switching to iptables-legacy..."
       if command -v update-alternatives &>/dev/null; then
-        sudo update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null \
-          && sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null \
-          && log_ok "Switched to iptables-legacy — restarting Docker daemon..." \
-          && sudo systemctl restart docker \
-          && log_ok "Docker restarted with iptables-legacy backend" \
-          || log_warn "Could not switch iptables backend automatically. Run manually:\n  sudo update-alternatives --set iptables /usr/sbin/iptables-legacy\n  sudo systemctl restart docker"
+        if sudo update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null \
+          && sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy 2>/dev/null; then
+          log_ok "Switched to iptables-legacy — restarting Docker daemon..."
+          if sudo systemctl restart docker; then
+            log_ok "Docker restarted with iptables-legacy backend"
+          else
+            log_warn "Could not restart Docker automatically. Run manually:\n  sudo systemctl restart docker"
+          fi
+        else
+          log_warn "Could not switch iptables backend automatically. Run manually:\n  sudo update-alternatives --set iptables /usr/sbin/iptables-legacy\n  sudo systemctl restart docker"
+        fi
       else
         log_warn "update-alternatives not found. Switch manually:\n  sudo update-alternatives --set iptables /usr/sbin/iptables-legacy\n  sudo systemctl restart docker"
       fi
@@ -164,9 +294,11 @@ if [[ "$OS" == "darwin" && "$ARCH" == "arm64" ]]; then
   fi
 fi
 
-# Script must run from DSP-standalone/
+# Work from the dsp-standalone directory regardless of the caller's directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+GENERATED_DIR="$SCRIPT_DIR/.generated"
+GENERATED_TAGGING_PDP_WORKFLOW="$GENERATED_DIR/tagging-pdp-workflows.yaml"
 log_ok "Working directory: $SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
@@ -222,6 +354,432 @@ validate_tools() {
     fi
   fi
 }
+
+find_tructl() {
+  if [[ -n "${TRUCTL:-}" && -x "${TRUCTL}" ]]; then
+    printf '%s\n' "$TRUCTL"
+    return 0
+  fi
+
+  local candidates=()
+  local candidate=""
+  if [[ -n "${BUNDLE_DIR:-}" ]]; then
+    candidates+=(
+      "$BUNDLE_DIR/tructl"
+      "$BUNDLE_DIR"/tools/dsp/*/tructl
+    )
+    for candidate in "${candidates[@]}"; do
+      if [[ -x "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+
+    # A selected bundle has already passed the release-version check. Do not
+    # fall back to tructl from another, potentially older bundle.
+    return 1
+  fi
+
+  candidates=(
+    "$SCRIPT_DIR/virtru-dsp-bundle/tructl"
+    "$SCRIPT_DIR/virtru-dsp-bundle"/tools/dsp/*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-bundle-*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-bundle-*/tools/dsp/*/tructl
+  )
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  while IFS= read -r candidate; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(find "$SCRIPT_DIR" -type f -name tructl 2>/dev/null | sort)
+
+  return 1
+}
+
+get_service_account_token() {
+  curl -fksSo - --max-time 10 \
+    -d "grant_type=client_credentials&client_id=opentdf&client_secret=secret" \
+    https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token \
+    2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true
+}
+
+get_keycloak_admin_token() {
+  curl -fksSo - --max-time 10 \
+    -d "grant_type=password&client_id=admin-cli&username=admin&password=changeme" \
+    https://local-dsp.virtru.com:18443/auth/realms/master/protocol/openid-connect/token \
+    2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true
+}
+
+list_policy_attribute_pairs() {
+  local token="$1"
+  curl -ksSo - --max-time 10 -X POST \
+    -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" \
+    -H "connect-protocol-version: 1" \
+    -d '{"pagination":{}}' \
+    "https://local-dsp.virtru.com:8080/policy.attributes.AttributesService/ListAttributes" \
+    2>/dev/null | jq -r '.attributes[]? | "\(.namespace.name)/\(.name)"' 2>/dev/null | sort -u
+}
+
+company_policy_is_present() {
+  local token="$1"
+  local attrs=""
+  local expected=""
+
+  attrs="$(list_policy_attribute_pairs "$token")"
+  for expected in company.com/classification company.com/department company.com/sensitivity; do
+    if ! grep -qx "$expected" <<<"$attrs"; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+company_users_are_present() {
+  local admin_token="$1"
+  local users=""
+  local expected=""
+
+  users="$(curl -fksSo - --max-time 10 \
+    -H "Authorization: Bearer $admin_token" \
+    "https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/users?max=200" \
+    2>/dev/null | jq -r '.[].username // empty' 2>/dev/null | sort -u)"
+
+  for expected in engineering-company-user hr-company-user accounting-company-user sales-company-user; do
+    if ! grep -qx "$expected" <<<"$users"; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+provision_company_namespace() {
+  local tructl_bin=""
+  local kc_output=""
+  local policy_output=""
+  local token=""
+  local admin_token=""
+
+  log_section "Provisioning optional namespace: company"
+
+  [[ -f "$SCRIPT_DIR/sample.company_keycloak.yaml" ]] || die "Missing file: $SCRIPT_DIR/sample.company_keycloak.yaml"
+  [[ -f "$SCRIPT_DIR/sample.company_policy.yaml" ]] || die "Missing file: $SCRIPT_DIR/sample.company_policy.yaml"
+
+  tructl_bin="$(find_tructl)" || die "Could not find tructl in an unpacked DSP bundle. Re-run setup with a local bundle available."
+  log_ok "Using tructl: $tructl_bin"
+
+  kc_output="$("$tructl_bin" provision keycloak-from-config \
+    -f "$SCRIPT_DIR/sample.company_keycloak.yaml" \
+    -e https://local-dsp.virtru.com:18443/auth 2>&1)" || {
+      echo "$kc_output" | while IFS= read -r line; do log_fail "  $line"; done
+      die "Failed to provision company Keycloak users"
+    }
+  log_ok "Company Keycloak users provisioned"
+
+  policy_output="$("$tructl_bin" \
+    --host https://local-dsp.virtru.com:8080 \
+    --tls-no-verify \
+    --with-client-creds '{"clientId":"opentdf","clientSecret":"secret"}' \
+    provision policy \
+    -n company.com \
+    -f "$SCRIPT_DIR/sample.company_policy.yaml" 2>&1)" || {
+      if echo "$policy_output" | grep -q "namespace company.com already exists: bad namespace"; then
+        log_warn "Company namespace already exists in DSP — validating existing policy objects"
+      else
+        echo "$policy_output" | while IFS= read -r line; do log_fail "  $line"; done
+        die "Failed to provision company DSP policy"
+      fi
+    }
+  if [[ -n "$policy_output" ]] && ! echo "$policy_output" | grep -q "namespace company.com already exists: bad namespace"; then
+    log_ok "Company DSP policy provisioned"
+  fi
+
+  token="$(get_service_account_token)"
+  [[ -n "$token" ]] || die "Could not obtain DSP service-account token after company provisioning"
+  company_policy_is_present "$token" || die "Company namespace attributes were not found after provisioning"
+  log_ok "Company namespace attributes are present in DSP"
+
+  admin_token="$(get_keycloak_admin_token)"
+  [[ -n "$admin_token" ]] || die "Could not obtain Keycloak admin token after company provisioning"
+  company_users_are_present "$admin_token" || die "Company Keycloak users were not found after provisioning"
+  log_ok "Company Keycloak users are present"
+}
+
+resolve_tagging_pdp_workflow_source() {
+  local bundle_dir="${1:-}"
+  local default_bundle_dir="$SCRIPT_DIR/virtru-dsp-bundle"
+  local candidate=""
+  local prompt_path=""
+
+  if [[ -n "$bundle_dir" && -f "$bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
+    candidate="$bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
+    log_info "Using tagging PDP workflow from bundle: $candidate"
+    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
+    return 0
+  fi
+
+  if [[ -f "$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
+    candidate="$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
+    log_info "Using tagging PDP workflow from unpacked bundle: $candidate"
+    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
+    return 0
+  fi
+
+  echo
+  log_warn "tagging-pdp-workflows.yaml was not found in the bundle at ./kubernetes/tagging-pdp-workflows.yaml."
+  while true; do
+    read -rp "  Enter the path to your tagging PDP workflow YAML: " prompt_path
+    prompt_path="${prompt_path/#\~/$HOME}"
+    if [[ -z "$prompt_path" ]]; then
+      echo "  Path cannot be empty."
+      continue
+    fi
+    if [[ ! -f "$prompt_path" ]]; then
+      echo "  File not found: $prompt_path"
+      continue
+    fi
+    TAGGING_PDP_WORKFLOW_SOURCE="$prompt_path"
+    return 0
+  done
+}
+
+extract_tagging_pdp_workflow() {
+  local source_path="$1"
+  local output_path="$2"
+
+  if grep -q '^taggingpdpWorkflows:$' "$source_path" && grep -q '^  config\.yaml:$' "$source_path"; then
+    awk '
+      /^  config\.yaml:$/ { emit=1; next }
+      emit {
+        if ($0 ~ /^    /) {
+          sub(/^    /, "")
+          print
+        } else if ($0 ~ /^$/) {
+          print ""
+        } else {
+          exit
+        }
+      }
+    ' "$source_path" > "$output_path"
+  else
+    cp "$source_path" "$output_path"
+  fi
+}
+
+extract_tagging_overlay_section() {
+  local overlay_path="$1"
+  local section_name="$2"
+  local output_path="$3"
+
+  awk -v section="$section_name" '
+    $0 == section ":" { emit=1; next }
+    emit {
+      if ($0 ~ /^[A-Za-z0-9_-][^:]*:([[:space:]].*)?$/) {
+        exit
+      }
+      print
+    }
+  ' "$overlay_path" > "$output_path"
+}
+
+merge_tagging_pdp_workflow() {
+  local base_path="$1"
+  local overlay_path="$2"
+  local output_path="$3"
+  local base_raw="$GENERATED_DIR/tagging-pdp-base.yaml"
+  local overlay_resource="$GENERATED_DIR/tagging-pdp-overlay-resourceMappingSets.yaml"
+  local overlay_rules="$GENERATED_DIR/tagging-pdp-overlay-tagExtractionRules.yaml"
+
+  extract_tagging_pdp_workflow "$base_path" "$base_raw"
+  extract_tagging_overlay_section "$overlay_path" "resourceMappingSets" "$overlay_resource"
+  extract_tagging_overlay_section "$overlay_path" "tagExtractionRules" "$overlay_rules"
+
+  awk -v resource_file="$overlay_resource" -v rules_file="$overlay_rules" '
+    function printfile(path, line) {
+      while ((getline line < path) > 0) {
+        print line
+      }
+      close(path)
+    }
+    {
+      if ($0 == "resourceMappingSets:") {
+        if (current == "rules" && !rules_done) {
+          printfile(rules_file)
+          rules_done = 1
+        }
+        current = "resource"
+      } else if ($0 == "tagExtractionRules:") {
+        if (current == "resource" && !resource_done) {
+          printfile(resource_file)
+          resource_done = 1
+        }
+        current = "rules"
+      } else if ($0 ~ /^[A-Za-z0-9_-][^:]*:([[:space:]].*)?$/) {
+        if (current == "resource" && !resource_done) {
+          printfile(resource_file)
+          resource_done = 1
+        } else if (current == "rules" && !rules_done) {
+          printfile(rules_file)
+          rules_done = 1
+        }
+        current = ""
+      }
+
+      print
+    }
+    END {
+      if (current == "resource" && !resource_done) {
+        printfile(resource_file)
+      } else if (current == "rules" && !rules_done) {
+        printfile(rules_file)
+      }
+    }
+  ' "$base_raw" > "$output_path"
+}
+
+stage_tagging_pdp_workflow() {
+  local source_path="$1"
+  local company_overlay_path="$SCRIPT_DIR/config/company.tagging-pdp-workflows.yaml"
+  local staged_candidate="$GENERATED_DIR/tagging-pdp-workflows.staged.yaml"
+
+  mkdir -p "$GENERATED_DIR"
+  if namespace_requested company && [[ -f "$company_overlay_path" ]]; then
+    merge_tagging_pdp_workflow "$source_path" "$company_overlay_path" "$staged_candidate"
+    log_info "Merged federal tagging workflow with company tagging overlay"
+  else
+    extract_tagging_pdp_workflow "$source_path" "$staged_candidate"
+    if grep -q '^taggingpdpWorkflows:$' "$source_path" && grep -q '^  config\.yaml:$' "$source_path"; then
+      log_info "Extracted inner tagging PDP workflow from bundle wrapper format"
+    fi
+  fi
+
+  if [[ -f "$GENERATED_TAGGING_PDP_WORKFLOW" ]] && cmp -s "$staged_candidate" "$GENERATED_TAGGING_PDP_WORKFLOW"; then
+    TAGGING_PDP_WORKFLOW_CHANGED=false
+    rm -f "$staged_candidate"
+    log_info "Tagging PDP workflow unchanged"
+  else
+    mv "$staged_candidate" "$GENERATED_TAGGING_PDP_WORKFLOW"
+    TAGGING_PDP_WORKFLOW_CHANGED=true
+  fi
+  log_ok "Staged tagging PDP workflow: $GENERATED_TAGGING_PDP_WORKFLOW"
+}
+
+ensure_bundle_directory_ready() {
+  local bundle_dir="$1"
+  local dsp_tar=""
+  local bundle_platform_version=""
+  local normalized_bundle_platform_version=""
+  local normalized_expected_platform_version="${DSP_PLATFORM_IMAGE_TAG#v}"
+
+  if [[ ! -x "$bundle_dir/dsp" ]]; then
+    case "$OS" in
+      darwin) dsp_tar=$(find "$bundle_dir/tools/dsp" -maxdepth 1 -type f -name "data-security-platform_*_darwin_${HOST_ARCH}.tar.gz" | head -1) ;;
+      linux)  dsp_tar=$(find "$bundle_dir/tools/dsp" -maxdepth 1 -type f -name "data-security-platform_*_linux_${HOST_ARCH}.tar.gz" | head -1) ;;
+    esac
+
+    if [[ -z "$dsp_tar" ]]; then
+      log_fail "'dsp' binary not found in $bundle_dir"
+      log_fail "Expected either $bundle_dir/dsp or a matching archive under tools/dsp/."
+      return 1
+    fi
+
+    log_info "Unpacking DSP CLI from bundle contents: ${dsp_tar#"$bundle_dir"/}"
+    tar -xvf "$dsp_tar" -C "$bundle_dir" >/dev/null
+    chmod +x "$bundle_dir/dsp"
+  fi
+
+  bundle_platform_version=$("$bundle_dir/dsp" version 2>&1 \
+    | awk '$1 == "Version:" { print $2; exit }')
+  normalized_bundle_platform_version="${bundle_platform_version#v}"
+  if [[ "$normalized_bundle_platform_version" != "$normalized_expected_platform_version" ]]; then
+    log_fail "DSP bundle CLI version mismatch in $bundle_dir"
+    log_fail "Expected $DSP_PLATFORM_IMAGE_TAG from bundle $DSP_BUNDLE_RELEASE; got ${bundle_platform_version:-unknown}."
+    return 1
+  fi
+
+  log_ok "DSP $bundle_platform_version CLI is ready in $bundle_dir"
+}
+
+registry_has_dsp_tag() {
+  local tags_json="$1"
+  local expected_tag="$2"
+
+  jq -e --arg expected_tag "$expected_tag" \
+    '(.tags // []) | index($expected_tag) != null' \
+    <<<"$tags_json" >/dev/null 2>&1
+}
+
+unpack_bundle_archive() {
+  local bundle_tar="$1"
+  local bundle_name bundle_dir unsafe_member
+
+  bundle_name="$(basename "$bundle_tar")"
+  bundle_name="${bundle_name%.tar.gz}"
+  bundle_dir="$GENERATED_DIR/$bundle_name"
+
+  if [[ -d "$bundle_dir" ]] && ensure_bundle_directory_ready "$bundle_dir"; then
+    log_ok "Reusing unpacked DSP bundle: $bundle_dir"
+    UNPACKED_BUNDLE_DIR="$bundle_dir"
+    return 0
+  fi
+
+  if ! gzip -t "$bundle_tar"; then
+    log_fail "Bundle is not a valid gzip archive: $bundle_tar"
+    return 1
+  fi
+
+  unsafe_member="$(tar -tzf "$bundle_tar" | awk '
+    ($0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/) && first == "" { first=$0 }
+    END { if (first != "") print first }
+  ')"
+  if [[ -n "$unsafe_member" ]]; then
+    log_fail "Bundle contains an unsafe archive path: $unsafe_member"
+    return 1
+  fi
+
+  mkdir -p "$bundle_dir"
+  log_info "Unpacking Virtru DSP bundle archive: $bundle_tar"
+  tar -xvf "$bundle_tar" -C "$bundle_dir" >/dev/null
+
+  ensure_bundle_directory_ready "$bundle_dir" || return 1
+  UNPACKED_BUNDLE_DIR="$bundle_dir"
+}
+
+prepare_bundle_input() {
+  local bundle_input="$1"
+
+  if [[ -f "$bundle_input" ]]; then
+    if [[ "$bundle_input" != *.tar.gz ]]; then
+      die "Expected --bundle to identify a Virtru DSP bundle .tar.gz archive or an unpacked bundle directory: $bundle_input"
+    fi
+    unpack_bundle_archive "$bundle_input" \
+      || die "Could not prepare DSP bundle $DSP_BUNDLE_RELEASE from $bundle_input"
+    BUNDLE_DIR="$UNPACKED_BUNDLE_DIR"
+  elif [[ -d "$bundle_input" ]]; then
+    ensure_bundle_directory_ready "$bundle_input" \
+      || die "Could not prepare DSP bundle $DSP_BUNDLE_RELEASE from $bundle_input"
+    BUNDLE_DIR="$bundle_input"
+  else
+    die "DSP bundle path not found: $bundle_input"
+  fi
+
+  log_ok "Using DSP bundle $DSP_BUNDLE_RELEASE from $BUNDLE_DIR"
+}
+
+if [[ -n "$BUNDLE_PATH" ]]; then
+  BUNDLE_PATH="${BUNDLE_PATH/#\~/$HOME}"
+  if [[ "$BUNDLE_PATH" != /* ]]; then
+    BUNDLE_PATH="$INVOCATION_DIR/$BUNDLE_PATH"
+  fi
+  prepare_bundle_input "$BUNDLE_PATH"
+fi
 
 # ---------------------------------------------------------------------------
 # Prerequisites — delegate to OS-specific script
@@ -289,7 +847,7 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   # --- federal policy sample ------------------------------------------------
   log_section "Sample federal policy"
 
-  FEDERAL_SRC="$SCRIPT_DIR/virtru-dsp-bundle/samples/defaults/federal.yaml"
+  FEDERAL_SRC="${BUNDLE_DIR:-$SCRIPT_DIR/virtru-dsp-bundle}/samples/defaults/federal.yaml"
   FEDERAL_DST="$SCRIPT_DIR/sample.federal_policy.yaml"
 
   if [[ -f "$FEDERAL_DST" ]]; then
@@ -342,28 +900,45 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
     # and exits non-zero. For this stack we only need system trust (curl + Go TLS),
     # not browser trust. TRUST_STORES=system skips NSS database lookup entirely.
     log_info "Running mkcert -install (system trust store only, linux/${HOST_ARCH})..."
-    TRUST_STORES=system mkcert -install 2>&1 \
-      && log_ok "mkcert CA installed (system trust store)" \
-      || log_warn "mkcert -install reported warnings — continuing."
+    if TRUST_STORES=system mkcert -install 2>&1; then
+      log_ok "mkcert CA installed (system trust store)"
+    else
+      log_warn "mkcert -install reported warnings — continuing."
+    fi
 
     log_info "Copying mkcert CA to system trust store..."
     MKCERT_CAROOT=$(mkcert -CAROOT 2>/dev/null || echo "")
     if [[ -f "${MKCERT_CAROOT}/rootCA.pem" ]]; then
       if [[ "$IS_RHEL" == true ]]; then
         # RHEL/CentOS: trust anchors live in /etc/pki/ca-trust/source/anchors/
-        sudo cp "${MKCERT_CAROOT}/rootCA.pem" /etc/pki/ca-trust/source/anchors/mkcert-rootCA.pem
-        sudo update-ca-trust extract && log_ok "mkcert CA added to system trust store (RHEL)"
+        MKCERT_SYSTEM_CA_PATH="/etc/pki/ca-trust/source/anchors/mkcert-rootCA.pem"
+        if [[ -f "$MKCERT_SYSTEM_CA_PATH" ]] \
+          && cmp -s "${MKCERT_CAROOT}/rootCA.pem" "$MKCERT_SYSTEM_CA_PATH"; then
+          log_ok "mkcert CA already matches the system trust store (RHEL)"
+        else
+          sudo cp "${MKCERT_CAROOT}/rootCA.pem" "$MKCERT_SYSTEM_CA_PATH"
+          sudo update-ca-trust extract && log_ok "mkcert CA added to system trust store (RHEL)"
+        fi
       else
         # Debian/Ubuntu: trust anchors live in /usr/local/share/ca-certificates/
-        sudo cp "${MKCERT_CAROOT}/rootCA.pem" /usr/local/share/ca-certificates/mkcert-rootCA.crt
-        sudo update-ca-certificates && log_ok "mkcert CA added to system trust store (Ubuntu)"
+        MKCERT_SYSTEM_CA_PATH="/usr/local/share/ca-certificates/mkcert-rootCA.crt"
+        if [[ -f "$MKCERT_SYSTEM_CA_PATH" ]] \
+          && cmp -s "${MKCERT_CAROOT}/rootCA.pem" "$MKCERT_SYSTEM_CA_PATH"; then
+          log_ok "mkcert CA already matches the system trust store (Ubuntu)"
+        else
+          sudo cp "${MKCERT_CAROOT}/rootCA.pem" "$MKCERT_SYSTEM_CA_PATH"
+          sudo update-ca-certificates && log_ok "mkcert CA added to system trust store (Ubuntu)"
+        fi
       fi
     else
       log_warn "Could not find mkcert rootCA.pem at ${MKCERT_CAROOT} — system trust store not updated."
     fi
   else
-    mkcert -install 2>/dev/null && log_ok "mkcert CA installed" \
-      || log_warn "mkcert -install failed (may need sudo or NSS tools). Continuing."
+    if mkcert -install 2>/dev/null; then
+      log_ok "mkcert CA installed"
+    else
+      log_warn "mkcert -install failed (may need sudo or NSS tools). Continuing."
+    fi
   fi
 
   # --- dsp-keys/ ------------------------------------------------------------
@@ -539,59 +1114,126 @@ print('Updated $DAEMON_JSON')
   fi
   log_ok "Registry is ready"
 
-  # Check DSP image is present; prompt for bundle path if not
+  # Require the platform image shipped by the supported public DSP bundle.
+  # Merely finding another DSP tag is not enough: a developer registry often
+  # retains older images, and selecting one would silently defeat an upgrade.
   DSP_TAGS=$(curl -fsSL http://localhost:5000/v2/virtru/data-security-platform/tags/list 2>/dev/null || echo "")
-  if echo "$DSP_TAGS" | grep -q '"tags"'; then
-    log_ok "DSP image found in local registry"
+  if registry_has_dsp_tag "$DSP_TAGS" "$DSP_PLATFORM_IMAGE_TAG"; then
+    log_ok "DSP image $DSP_PLATFORM_IMAGE_TAG (bundle $DSP_BUNDLE_RELEASE) found in local registry"
   else
     echo
-    log_warn "DSP image not found in local registry."
+    if echo "$DSP_TAGS" | grep -q '"tags"'; then
+      log_warn "DSP images are present, but required tag $DSP_PLATFORM_IMAGE_TAG is missing."
+    else
+      log_warn "DSP image not found in local registry."
+    fi
     echo
-    echo "  The proprietary DSP image must be loaded from a Virtru bundle."
+    echo "  Download Virtru DSP bundle release $DSP_BUNDLE_RELEASE from:"
+    echo "    https://secure.virtru.com/download"
+    echo
+    echo "  The bundle must provide platform image tag $DSP_PLATFORM_IMAGE_TAG."
     echo "  Expected layout inside the bundle:"
     echo "    virtru-dsp-bundle/"
-    echo "    └── dsp   (the DSP CLI binary)"
+    echo "    ├── dsp   (the DSP CLI binary)"
+    echo "    └── kubernetes/tagging-pdp-workflows.yaml"
     echo
 
     # If the prereqs script already unpacked the bundle, use it automatically
-    if [[ -x "$SCRIPT_DIR/virtru-dsp-bundle/dsp" ]]; then
+    if [[ -n "${BUNDLE_DIR:-}" ]]; then
+      log_info "Using bundle selected with --bundle: $BUNDLE_DIR"
+    elif [[ -x "$SCRIPT_DIR/virtru-dsp-bundle/dsp" ]] \
+      && ensure_bundle_directory_ready "$SCRIPT_DIR/virtru-dsp-bundle"; then
       BUNDLE_DIR="$SCRIPT_DIR/virtru-dsp-bundle"
       log_info "Using bundle unpacked by prereqs: $BUNDLE_DIR"
     else
       BUNDLE_DIR=""
       while true; do
-        read -rp "  Enter path to the unpacked Virtru DSP bundle directory: " BUNDLE_DIR
-        BUNDLE_DIR="${BUNDLE_DIR/#\~/$HOME}"   # expand leading ~
-        if [[ -z "$BUNDLE_DIR" ]]; then
+        read -rp "  Enter path to the unpacked Virtru DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive: " BUNDLE_INPUT
+        BUNDLE_INPUT="${BUNDLE_INPUT/#\~/$HOME}"   # expand leading ~
+        if [[ -z "$BUNDLE_INPUT" ]]; then
           echo "  Path cannot be empty."
           continue
         fi
-        if [[ ! -d "$BUNDLE_DIR" ]]; then
-          echo "  Directory not found: $BUNDLE_DIR"
+
+        if [[ -f "$BUNDLE_INPUT" ]]; then
+          if [[ "$BUNDLE_INPUT" != *.tar.gz ]]; then
+            echo "  Expected a Virtru DSP bundle .tar.gz file or an unpacked bundle directory."
+            continue
+          fi
+          if unpack_bundle_archive "$BUNDLE_INPUT"; then
+            BUNDLE_DIR="$UNPACKED_BUNDLE_DIR"
+            break
+          fi
           continue
         fi
-        if [[ ! -x "$BUNDLE_DIR/dsp" ]]; then
-          echo "  'dsp' binary not found or not executable in $BUNDLE_DIR"
-          echo "  Make sure you have unpacked the bundle and that 'dsp' exists at its root."
+        if [[ ! -d "$BUNDLE_INPUT" ]]; then
+          echo "  Directory not found: $BUNDLE_INPUT"
           continue
         fi
+        if ! ensure_bundle_directory_ready "$BUNDLE_INPUT"; then
+          echo "  Make sure the bundle contains a matching DSP CLI archive under tools/dsp/."
+          continue
+        fi
+        BUNDLE_DIR="$BUNDLE_INPUT"
         break
       done
+    fi
+
+    if [[ ! -f "$FEDERAL_DST" && -f "$BUNDLE_DIR/samples/defaults/federal.yaml" ]]; then
+      cp "$BUNDLE_DIR/samples/defaults/federal.yaml" "$FEDERAL_DST"
+      log_ok "Copied $BUNDLE_DIR/samples/defaults/federal.yaml → $FEDERAL_DST"
     fi
 
     log_info "Loading DSP images from bundle: $BUNDLE_DIR"
     (cd "$BUNDLE_DIR" && ./dsp copy-images --insecure localhost:5000/virtru)
 
-    # Verify image loaded
+    # Verify that the bundle supplied the exact supported platform release.
     DSP_TAGS=$(curl -fsSL http://localhost:5000/v2/virtru/data-security-platform/tags/list 2>/dev/null || echo "")
-    if echo "$DSP_TAGS" | grep -q '"tags"'; then
-      log_ok "DSP image loaded successfully"
+    if registry_has_dsp_tag "$DSP_TAGS" "$DSP_PLATFORM_IMAGE_TAG"; then
+      log_ok "DSP image $DSP_PLATFORM_IMAGE_TAG loaded successfully"
     else
-      die "DSP image still not found after loading. Check the output above for errors."
+      AVAILABLE_DSP_TAGS=$(jq -r '(.tags // []) | join(", ")' <<<"$DSP_TAGS" 2>/dev/null || echo "none")
+      die "The selected bundle did not provide required platform image $DSP_PLATFORM_IMAGE_TAG (DSP bundle $DSP_BUNDLE_RELEASE).\nAvailable registry tags: ${AVAILABLE_DSP_TAGS:-none}\nDownload the supported bundle from https://secure.virtru.com/download and retry."
     fi
   fi
 
 fi  # end prerequisites block
+
+# The release bundle also supplies tructl and the tagging workflow. Validate
+# the local bundle even when the matching container image was already present
+# in the registry so host tooling cannot remain on an older release.
+if [[ "$SDK_ONLY" == false && -z "${BUNDLE_DIR:-}" ]]; then
+  BUNDLE_DIR="$SCRIPT_DIR/virtru-dsp-bundle"
+  if [[ ! -d "$BUNDLE_DIR" ]] || ! ensure_bundle_directory_ready "$BUNDLE_DIR"; then
+    die "Virtru DSP bundle $DSP_BUNDLE_RELEASE is required for its $DSP_PLATFORM_IMAGE_TAG CLI and tagging configuration.\nUnpack the supported bundle at $BUNDLE_DIR or pass --bundle /path/to/bundle and retry."
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve + stage tagging workflow before start/validation
+# ---------------------------------------------------------------------------
+if [[ "$SDK_ONLY" == false ]]; then
+  log_section "Resolving tagging PDP workflow"
+  resolve_tagging_pdp_workflow_source "${BUNDLE_DIR:-}"
+  stage_tagging_pdp_workflow "$TAGGING_PDP_WORKFLOW_SOURCE"
+
+  if [[ "$VALIDATE_ONLY" == true && "$TAGGING_PDP_WORKFLOW_CHANGED" == true ]]; then
+    if docker compose ps dsp 2>/dev/null | grep -qiE "Up|running|healthy"; then
+      log_section "Restarting DSP to apply updated tagging workflow"
+      docker compose restart dsp
+      log_info "Waiting for DSP /healthz after restart..."
+      for _ in {1..18}; do
+        if curl -fksSo /dev/null --max-time 5 https://local-dsp.virtru.com:8080/healthz 2>/dev/null; then
+          log_ok "DSP is healthy after tagging workflow restart"
+          break
+        fi
+        sleep 5
+      done
+    else
+      log_warn "DSP is not currently running, so the updated tagging workflow was staged but not applied."
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Detect DSP image tag from registry + start the stack
@@ -600,18 +1242,14 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
   log_section "Detecting DSP image version"
 
-  # Filter to version tags only (e.g. v2.7.4) — the registry also contains SBOM/attestation
-  # tags like "sbom-sha256-....att" which sort after version tags alphabetically and would
-  # cause a mismatch if selected as the DSP_IMAGE build arg.
-  DSP_TAG=$(curl -fsSL http://localhost:5000/v2/virtru/data-security-platform/tags/list 2>/dev/null \
-    | jq -r '.tags | map(select(test("^v[0-9]"))) | sort | last' 2>/dev/null || echo "")
-
-  if [[ -z "$DSP_TAG" || "$DSP_TAG" == "null" ]]; then
-    die "Could not detect DSP image tag from local registry.\nMake sure the registry is running and the image has been loaded."
+  DSP_TAGS=$(curl -fsSL http://localhost:5000/v2/virtru/data-security-platform/tags/list 2>/dev/null || echo "")
+  if ! registry_has_dsp_tag "$DSP_TAGS" "$DSP_PLATFORM_IMAGE_TAG"; then
+    die "Required DSP image $DSP_PLATFORM_IMAGE_TAG is not available in the local registry.\nLoad Virtru DSP bundle $DSP_BUNDLE_RELEASE and retry."
   fi
 
+  DSP_TAG="$DSP_PLATFORM_IMAGE_TAG"
   DSP_IMAGE="localhost:5000/virtru/data-security-platform:${DSP_TAG}"
-  log_ok "DSP image: $DSP_IMAGE"
+  log_ok "DSP bundle: $DSP_BUNDLE_RELEASE | platform image: $DSP_IMAGE"
 
   log_section "Starting Docker Compose stack"
 
@@ -673,6 +1311,10 @@ open('dsp.yaml', 'w').write(content)
 
 fi
 
+if namespace_requested company; then
+  provision_company_namespace
+fi
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -686,8 +1328,6 @@ else
 # --- 1. Container status ----------------------------------------------------
 log_info "Check 1: Container status"
 
-COMPOSE_PS=$(docker compose ps --format json 2>/dev/null || docker compose ps 2>/dev/null)
-
 for svc in keycloak-db keycloak dsp-db dsp; do
   if docker compose ps "$svc" 2>/dev/null | grep -qiE "Up|running|healthy"; then
     check_pass "$svc is running"
@@ -696,6 +1336,18 @@ for svc in keycloak-db keycloak dsp-db dsp; do
     ERRORS+=("$svc container not running")
   fi
 done
+
+  log_info "Check 1a: DSP platform version"
+  DSP_VERSION_OUTPUT=$(docker compose exec -T dsp /usr/bin/dsp version 2>&1 || true)
+  DSP_REPORTED_VERSION=$(awk '$1 == "Version:" { print $2; exit }' <<<"$DSP_VERSION_OUTPUT")
+  DSP_EXPECTED_VERSION="${DSP_PLATFORM_IMAGE_TAG#v}"
+  DSP_REPORTED_VERSION="${DSP_REPORTED_VERSION#v}"
+  if [[ "$DSP_REPORTED_VERSION" == "$DSP_EXPECTED_VERSION" ]]; then
+    check_pass "DSP platform version is $DSP_PLATFORM_IMAGE_TAG (bundle $DSP_BUNDLE_RELEASE)"
+  else
+    check_fail "DSP platform version is not $DSP_PLATFORM_IMAGE_TAG (got: ${DSP_REPORTED_VERSION:-no response})"
+    ERRORS+=("DSP platform version mismatch — expected $DSP_PLATFORM_IMAGE_TAG from bundle $DSP_BUNDLE_RELEASE")
+  fi
 
   # Wait for one-shot provisioning containers to reach Exited (0)
   log_info "Check 1b: Waiting for provisioning containers to complete"
@@ -748,13 +1400,23 @@ else
   ERRORS+=("Keycloak realm not reachable")
 fi
 
+# --- 3b. Optional Keycloak users -------------------------------------------
+if namespace_requested company; then
+  log_info "Check 3b: Company namespace Keycloak users"
+
+  ADMIN_TOKEN=$(get_keycloak_admin_token)
+  if [[ -n "$ADMIN_TOKEN" ]] && company_users_are_present "$ADMIN_TOKEN"; then
+    check_pass "Company namespace users are present in Keycloak"
+  else
+    check_fail "Company namespace users not found in Keycloak"
+    ERRORS+=("Company namespace users missing from Keycloak")
+  fi
+fi
+
 # --- 4. Obtain token --------------------------------------------------------
 log_info "Check 4: Obtain service account token"
 
-TOKEN=$(curl -fksSo - --max-time 10 \
-  -d "grant_type=client_credentials&client_id=opentdf&client_secret=secret" \
-  https://local-dsp.virtru.com:18443/auth/realms/opentdf/protocol/openid-connect/token \
-  2>/dev/null | jq -r '.access_token' 2>/dev/null || echo "")
+TOKEN=$(get_service_account_token)
 
 if [[ -n "$TOKEN" && "$TOKEN" != "null" ]]; then
   check_pass "Token obtained from Keycloak"
@@ -764,23 +1426,35 @@ else
 fi
 
 # --- 5. DSP attributes provisioned ------------------------------------------
-log_info "Check 5: DSP attributes (federal policy)"
+log_info "Check 5: DSP attributes"
 
 if [[ -n "$TOKEN" && "$TOKEN" != "null" ]]; then
-  ATTRS=$(curl -ksSo - --max-time 10 -X POST \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json" \
-    -H "connect-protocol-version: 1" \
-    -d '{"pagination":{}}' \
-    "https://local-dsp.virtru.com:8080/policy.attributes.AttributesService/ListAttributes" \
-    2>/dev/null | jq -r '[.attributes[].name] | sort | join(",")' 2>/dev/null || echo "")
+  ATTRS="$(list_policy_attribute_pairs "$TOKEN")"
+  REQUIRED_ATTRS=(
+    "demo.com/classification"
+    "demo.com/needtoknow"
+    "demo.com/relto"
+  )
+  if namespace_requested company; then
+    REQUIRED_ATTRS+=(
+      "company.com/classification"
+      "company.com/department"
+      "company.com/sensitivity"
+    )
+  fi
 
-  EXPECTED="classification,needtoknow,relto"
-  if [[ "$ATTRS" == "$EXPECTED" ]]; then
-    check_pass "Federal policy attributes found: $ATTRS"
+  MISSING_ATTRS=()
+  for expected in "${REQUIRED_ATTRS[@]}"; do
+    if ! grep -qx "$expected" <<<"$ATTRS"; then
+      MISSING_ATTRS+=("$expected")
+    fi
+  done
+
+  if [[ ${#MISSING_ATTRS[@]} -eq 0 ]]; then
+    check_pass "Required policy attributes found: $(printf '%s ' "${REQUIRED_ATTRS[@]}")"
   else
-    check_fail "Attributes mismatch — expected: $EXPECTED  got: ${ATTRS:-none}"
-    ERRORS+=("Federal policy attributes not provisioned correctly")
+    check_fail "Missing required attributes: ${MISSING_ATTRS[*]}"
+    ERRORS+=("Required policy attributes not provisioned correctly")
   fi
 else
   check_fail "Skipping attribute check (no token)"
@@ -810,7 +1484,7 @@ fi
 fi  # end infra checks (skipped when --sdk-only)
 
 # ---------------------------------------------------------------------------
-# SDK Validation (optional — requires --sdk-validation flag)
+# SDK validation runs by default; --sdk-only skips the infrastructure checks.
 # ---------------------------------------------------------------------------
 
 # Helper: print captured output indented inside a labeled box
@@ -830,26 +1504,36 @@ if [[ "$SDK_VALIDATION" == "true" ]]; then
   log_section "SDK Validation (Go programs)"
 
   SDK_DIR="$SCRIPT_DIR"
+  SDK_RUNTIME_DIR="$GENERATED_DIR/sdk"
+  GO_CACHE_ROOT="$GENERATED_DIR/go"
+  export GOPATH="${GOPATH:-$GO_CACHE_ROOT}"
+  export GOMODCACHE="${GOMODCACHE:-$GO_CACHE_ROOT/pkg/mod}"
+  export GOCACHE="${GOCACHE:-$GO_CACHE_ROOT/build}"
+  mkdir -p "$SDK_RUNTIME_DIR" "$GOMODCACHE" "$GOCACHE"
 
   # Verify Go is installed
   if ! command -v go &> /dev/null; then
     check_fail "Go is not installed — cannot run SDK validation"
-    ERRORS+=("Go not found; install Go and re-run with --sdk-validation")
+    ERRORS+=("Go not found; install Go and rerun validation")
   else
     log_ok "Go found: $(go version)"
+    log_info "Using committed SDK module: $SDK_DIR"
+    log_info "Using generated SDK runtime directory: $SDK_RUNTIME_DIR"
+    log_info "Using Go cache root: $GO_CACHE_ROOT"
+    log_info "First-run Go dependency downloads can take a few minutes."
 
-    # --- Check / create go.mod -----------------------------------------------
+    # --- Validate the committed Go module -----------------------------------
     log_info "Checking go.mod..."
 
     GOMOD="$SDK_DIR/go.mod"
-    EXPECTED_MODULE="dsp-standalone"
-    EXPECTED_SDK="github.com/opentdf/platform/sdk v0.7.0"
+    EXPECTED_MODULE="github.com/virtru/dsp-standalone"
+    EXPECTED_SDK="github.com/opentdf/platform/sdk"
     EXPECTED_OAUTH="golang.org/x/oauth2"
 
     GOMOD_OK=true
 
     if [[ ! -f "$GOMOD" ]]; then
-      log_warn "go.mod not found — creating it"
+      log_warn "go.mod not found"
       GOMOD_OK=false
     else
       # Verify the module name and required direct dependencies are present
@@ -857,108 +1541,143 @@ if [[ "$SDK_VALIDATION" == "true" ]]; then
         log_warn "go.mod module name is not '${EXPECTED_MODULE}'"
         GOMOD_OK=false
       fi
-      if ! grep -q "${EXPECTED_SDK}" "$GOMOD"; then
+      if ! grep -q "^[[:space:]]*${EXPECTED_SDK}[[:space:]]" "$GOMOD"; then
         log_warn "go.mod is missing direct dependency: ${EXPECTED_SDK}"
         GOMOD_OK=false
       fi
-      if ! grep -q "${EXPECTED_OAUTH}" "$GOMOD"; then
+      if ! grep -q "^[[:space:]]*${EXPECTED_OAUTH}[[:space:]]" "$GOMOD"; then
         log_warn "go.mod is missing direct dependency: ${EXPECTED_OAUTH}"
         GOMOD_OK=false
       fi
     fi
 
     if [[ "$GOMOD_OK" == false ]]; then
-      log_info "Writing a fresh go.mod for the SDK programs..."
-      GO_VERSION_SHORT=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')
-      cat > "$GOMOD" <<EOF
-module ${EXPECTED_MODULE}
-
-go ${GO_VERSION_SHORT}
-
-require (
-	github.com/opentdf/platform/sdk v0.7.0
-	golang.org/x/oauth2 v0.30.0
-)
-EOF
-      check_pass "go.mod created (module=${EXPECTED_MODULE}, sdk=v0.7.0)"
+      check_fail "go.mod is missing or invalid"
+      ERRORS+=("go.mod is missing or invalid — restore the committed module before running SDK validation")
+      log_warn "Skipping SDK builds because the committed Go module is unavailable"
     else
       check_pass "go.mod is present and contains the expected dependencies"
+
+      # Load and verify the committed dependency graph without rewriting it.
+      log_info "Downloading and verifying Go modules..."
+      MODULES_OK=true
+      if (cd "$SDK_DIR" && go mod download && go mod verify 2>&1); then
+        check_pass "Go modules downloaded and verified"
+      else
+        check_fail "Go module download or verification failed"
+        ERRORS+=("Go module verification failed — check go.mod, go.sum, and network connectivity")
+        MODULES_OK=false
+      fi
+
+      if [[ "$MODULES_OK" == false ]]; then
+        log_warn "Skipping SDK builds because Go module verification failed"
+      else
+        # --- Build all programs first ----------------------------------------
+        log_info "Building Go programs..."
+        BUILD_DIR=$(mktemp -d)
+
+        BIN_TOY="$BUILD_DIR/toySDK"
+        BIN_BOB="$BUILD_DIR/bobTestAlexFile"
+        BIN_ALICE="$BUILD_DIR/aliceTestAlexFile"
+        BIN_COMPANY="$BUILD_DIR/companyNamespaceValidation"
+
+        BUILD_OK=true
+        BUILD_TARGETS=(
+          "./cmd/toy-sdk:$BIN_TOY"
+          "./cmd/bob-test-alex-file:$BIN_BOB"
+          "./cmd/alice-test-alex-file:$BIN_ALICE"
+        )
+        if namespace_requested company; then
+          BUILD_TARGETS+=("./cmd/company-namespace-validation:$BIN_COMPANY")
+        fi
+
+        for target in "${BUILD_TARGETS[@]}"; do
+          src="${target%%:*}"
+          bin="${target#*:}"
+          BUILD_OUTPUT=$(cd "$SDK_DIR" && go build -o "$bin" "$src" 2>&1) && BUILD_RC=0 || BUILD_RC=$?
+          if [[ $BUILD_RC -eq 0 ]]; then
+            check_pass "Built $src"
+          else
+            check_fail "Failed to build $src (exit $BUILD_RC)"
+            echo "$BUILD_OUTPUT" | while IFS= read -r line; do log_fail "  $line"; done
+            ERRORS+=("Build failed: $src — fix compile errors before running SDK tests")
+            BUILD_OK=false
+          fi
+        done
+
+        if [[ "$BUILD_OK" == false ]]; then
+          log_warn "Skipping SDK test runs due to build failures above"
+        else
+
+          # --- toy-sdk: Alex encrypts a file ---------------------------------
+          log_info "Running toy-sdk (Alex creates alex_test.tdf)..."
+          TOY_OUTPUT=$(cd "$SDK_RUNTIME_DIR" && "$BIN_TOY" 2>&1) && TOY_RC=0 || TOY_RC=$?
+          print_program_output "toy-sdk" "$TOY_OUTPUT"
+          if [[ $TOY_RC -eq 0 ]]; then
+            check_pass "toy-sdk: Alex successfully encrypted and decrypted the TDF"
+          else
+            check_fail "toy-sdk failed (exit $TOY_RC)"
+            ERRORS+=("toy-sdk failed — Alex could not create TDF")
+          fi
+
+          # --- Bob (TS/GBR) should decrypt Alex's file -----------------------
+          log_info "Running bob-test-alex-file (Bob reads Alex's file)..."
+          BOB_OUTPUT=$(cd "$SDK_RUNTIME_DIR" && "$BIN_BOB" 2>&1) && BOB_RC=0 || BOB_RC=$?
+          print_program_output "bob-test-alex-file" "$BOB_OUTPUT"
+          if [[ $BOB_RC -eq 0 ]]; then
+            check_pass "bob-test-alex-file: Bob successfully decrypted Alex's file (FVEY + TS access)"
+          else
+            check_fail "bob-test-alex-file failed (exit $BOB_RC)"
+            ERRORS+=("bob-test-alex-file failed — Bob should be able to decrypt Alex's file")
+          fi
+
+          # --- Alice (S/USA) should be denied --------------------------------
+          log_info "Running alice-test-alex-file (Alice denied Alex's file)..."
+          ALICE_OUTPUT=$(cd "$SDK_RUNTIME_DIR" && "$BIN_ALICE" 2>&1) && ALICE_RC=0 || ALICE_RC=$?
+          print_program_output "alice-test-alex-file" "$ALICE_OUTPUT"
+          if [[ $ALICE_RC -eq 0 ]]; then
+            check_pass "alice-test-alex-file: KAS correctly denied Alice access to Top Secret file"
+          else
+            check_fail "alice-test-alex-file failed (exit $ALICE_RC) — expected denial to succeed"
+            ERRORS+=("alice-test-alex-file: access denial test did not succeed as expected")
+          fi
+
+          if namespace_requested company; then
+            log_info "Running company-namespace-validation (company namespace access test)..."
+            COMPANY_OUTPUT=$(cd "$SDK_RUNTIME_DIR" && "$BIN_COMPANY" 2>&1) && COMPANY_RC=0 || COMPANY_RC=$?
+            print_program_output "company-namespace-validation" "$COMPANY_OUTPUT"
+            if [[ $COMPANY_RC -eq 0 ]]; then
+              check_pass "company-namespace-validation: company namespace users and policy behaved as expected"
+            else
+              check_fail "company-namespace-validation failed (exit $COMPANY_RC)"
+              ERRORS+=("company-namespace-validation failed — company namespace validation did not succeed")
+            fi
+          fi
+        fi
+
+        rm -rf "$BUILD_DIR"
+      fi
     fi
+  fi
+fi
 
-    # Load dependencies
-    log_info "Running go mod tidy..."
-    if (cd "$SDK_DIR" && go mod tidy 2>&1); then
-      check_pass "go mod tidy succeeded"
-    else
-      check_fail "go mod tidy failed"
-      ERRORS+=("go mod tidy failed — check go.mod and network connectivity")
-    fi
+# ---------------------------------------------------------------------------
+# Tagging Validation
+# ---------------------------------------------------------------------------
+if [[ "$SDK_ONLY" == true ]]; then
+  log_section "Skipping tagging validation (--sdk-only)"
+else
+  log_section "Tagging Validation"
+  TAGGING_TEST_ARGS=(--namespace federal)
+  if namespace_requested company; then
+    TAGGING_TEST_ARGS+=(--namespace company)
+  fi
 
-    # --- Build all three programs first ----------------------------------------
-    log_info "Building Go programs..."
-    BUILD_DIR=$(mktemp -d)
-
-    BIN_TOY="$BUILD_DIR/toySDK"
-    BIN_BOB="$BUILD_DIR/bobTestAlexFile"
-    BIN_ALICE="$BUILD_DIR/aliceTestAlexFile"
-
-    BUILD_OK=true
-    while IFS=: read -r src bin; do
-      BUILD_OUTPUT=$(cd "$SDK_DIR" && go build -o "$bin" "$src" 2>&1) && BUILD_RC=0 || BUILD_RC=$?
-      if [[ $BUILD_RC -eq 0 ]]; then
-        check_pass "Built $src"
-      else
-        check_fail "Failed to build $src (exit $BUILD_RC)"
-        echo "$BUILD_OUTPUT" | while IFS= read -r line; do log_fail "  $line"; done
-        ERRORS+=("Build failed: $src — fix compile errors before running SDK tests")
-        BUILD_OK=false
-      fi
-    done <<EOF
-toySDK.go:$BIN_TOY
-bobTestAlexFile.go:$BIN_BOB
-aliceTestAlexFile.go:$BIN_ALICE
-EOF
-
-    if [[ "$BUILD_OK" == false ]]; then
-      log_warn "Skipping SDK test runs due to build failures above"
-    else
-
-      # --- toySDK: Alex encrypts a file ---------------------------------------
-      log_info "Running toySDK (Alex creates alex_test.tdf)..."
-      TOY_OUTPUT=$(cd "$SDK_DIR" && "$BIN_TOY" 2>&1) && TOY_RC=0 || TOY_RC=$?
-      print_program_output "toySDK.go" "$TOY_OUTPUT"
-      if [[ $TOY_RC -eq 0 ]]; then
-        check_pass "toySDK.go: Alex successfully encrypted and decrypted the TDF"
-      else
-        check_fail "toySDK.go failed (exit $TOY_RC)"
-        ERRORS+=("toySDK.go failed — Alex could not create TDF")
-      fi
-
-      # --- bobTestAlexFile: Bob (TS/GBR) should decrypt Alex's file -----------
-      log_info "Running bobTestAlexFile (Bob reads Alex's file)..."
-      BOB_OUTPUT=$(cd "$SDK_DIR" && "$BIN_BOB" 2>&1) && BOB_RC=0 || BOB_RC=$?
-      print_program_output "bobTestAlexFile.go" "$BOB_OUTPUT"
-      if [[ $BOB_RC -eq 0 ]]; then
-        check_pass "bobTestAlexFile.go: Bob successfully decrypted Alex's file (FVEY + TS access)"
-      else
-        check_fail "bobTestAlexFile.go failed (exit $BOB_RC)"
-        ERRORS+=("bobTestAlexFile.go failed — Bob should be able to decrypt Alex's file")
-      fi
-
-      # --- aliceTestAlexFile: Alice (S/USA) should be denied ------------------
-      log_info "Running aliceTestAlexFile (Alice denied Alex's file)..."
-      ALICE_OUTPUT=$(cd "$SDK_DIR" && "$BIN_ALICE" 2>&1) && ALICE_RC=0 || ALICE_RC=$?
-      print_program_output "aliceTestAlexFile.go" "$ALICE_OUTPUT"
-      if [[ $ALICE_RC -eq 0 ]]; then
-        check_pass "aliceTestAlexFile.go: KAS correctly denied Alice access to Top Secret file"
-      else
-        check_fail "aliceTestAlexFile.go failed (exit $ALICE_RC) — expected denial to succeed"
-        ERRORS+=("aliceTestAlexFile.go: access denial test did not succeed as expected")
-      fi
-
-    fi
-
-    rm -rf "$BUILD_DIR"
+  if bash "$SCRIPT_DIR/test_tagging.sh" "${TAGGING_TEST_ARGS[@]}"; then
+    check_pass "Tagging validation passed"
+  else
+    check_fail "Tagging validation failed"
+    ERRORS+=("Tagging validation failed — inspect test_tagging.sh output")
   fi
 fi
 
