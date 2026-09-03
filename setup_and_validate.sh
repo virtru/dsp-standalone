@@ -720,7 +720,9 @@ set_bundle_release_from_path() {
     DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
   else
     DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
-    log_warn "Could not infer the bundle release from '$bundle_name'; using $DSP_BUNDLE_RELEASE as its display label."
+    if [[ "$bundle_name" != "virtru-dsp-bundle" ]]; then
+      log_warn "Could not infer the bundle release from '$bundle_name'; using $DSP_BUNDLE_RELEASE as its display label."
+    fi
   fi
 }
 
