@@ -71,6 +71,19 @@ The command installs or verifies prerequisites, safely unpacks the bundle under
 stack, provisions the sample federal policy, and runs infrastructure, tagging,
 and Go SDK tests.
 
+### What the host needs
+
+| Phase | Requirements |
+|---|---|
+| Run an already prepared stack | A running Docker engine with Compose and host networking; the built DSP image, Keycloak and PostgreSQL images, generated certificates/keys, config files, and `local-dsp.virtru.com` resolving to `127.0.0.1`. |
+| First setup or rebuild | The DSP bundle, Docker Buildx, a reachable local registry on port 5000, `curl`, `jq`, `mkcert`, `openssl`, and `cosign`. macOS also uses `shasum`, `tar`, and `gzip` from the system to unpack the archive; Linux uses `python3` to prepare its DSP config. |
+| Default SDK validation | Go and access to its module dependencies. Go is not used by the running containers. |
+
+The `mkcert` and `cosign` executables generate the certificate and signing keys;
+the containers use the resulting files. The registry serves the bundle image
+during setup and builds. Homebrew is only needed to install a missing host tool.
+Node.js, nvm, wget, git, and make are not required by this stack on macOS.
+
 If you omit `--bundle`, setup uses `./virtru-dsp-bundle` when that directory
 exists. Otherwise it prompts for a bundle path in an interactive terminal. In
 non-interactive runs, pass `--bundle` explicitly.

@@ -1170,7 +1170,12 @@ print('Updated $DAEMON_JSON')
   fi
 
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
-    log_ok "Registry container already running"
+    if curl -fsSL --max-time 3 http://localhost:5000/v2/ &>/dev/null; then
+      log_ok "Registry container already running"
+    else
+      log_warn "Registry container is running but port 5000 is unreachable — restarting it..."
+      docker restart registry
+    fi
   elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
     log_info "Starting existing registry container..."
     docker start registry
