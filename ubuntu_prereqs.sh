@@ -11,6 +11,14 @@
 
 set +e  # do not exit on individual step failures — setup_and_validate.sh handles continuation
 
+SKIP_BUILDX=false
+if [[ "${1:-}" == "--no-build" ]]; then
+  SKIP_BUILDX=true
+elif [[ $# -gt 0 ]]; then
+  echo "Unknown prerequisite option: $1" >&2
+  exit 1
+fi
+
 if [[ $EUID -eq 0 ]]; then
   echo "Do not run ubuntu_prereqs.sh with sudo or as root. Run it as your normal user; the script invokes sudo only for system-level changes." >&2
   exit 1
@@ -72,7 +80,11 @@ if ! command -v docker &> /dev/null; then
     https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
     sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
   sudo apt update -y
-  sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-compose-plugin)
+  if [[ "$SKIP_BUILDX" == false ]]; then
+    DOCKER_PACKAGES+=(docker-buildx-plugin)
+  fi
+  sudo apt install -y "${DOCKER_PACKAGES[@]}"
 fi
 
 # ------------------------------------------------------------
@@ -85,6 +97,15 @@ if ! docker compose version &> /dev/null; then
   sudo apt install -y docker-compose-plugin
 else
   echo "Docker Compose already installed — $(docker compose version)"
+fi
+
+if [[ "$SKIP_BUILDX" == false ]]; then
+  echo "=== Checking Docker Buildx ==="
+  if ! docker buildx version &> /dev/null; then
+    echo "Docker Buildx plugin not found — installing..."
+    sudo apt install -y docker-buildx-plugin
+  fi
+  docker buildx version
 fi
 
 

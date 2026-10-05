@@ -903,7 +903,7 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
     fi
 
     PREREQS_OPTION=""
-    if [[ "$OS" == "darwin" && "$NO_BUILD" == true ]]; then
+    if [[ "$NO_BUILD" == true ]]; then
       PREREQS_OPTION="--no-build"
     fi
     log_info "Executing: $PREREQS_SCRIPT $PREREQS_OPTION"
