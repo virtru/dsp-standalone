@@ -1367,6 +1367,9 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   # to start with a config validation error. Restore the host file immediately
   # after building, including when the build exits with an error.
   if [[ "$OS" == "linux" && "$NO_BUILD" != true ]]; then
+    if [[ -e dsp.yaml.bak || -L dsp.yaml.bak ]]; then
+      die "dsp.yaml.bak already exists; preserve or restore it before retrying"
+    fi
     cp dsp.yaml dsp.yaml.bak
     trap 'if [[ -f dsp.yaml.bak ]]; then mv dsp.yaml.bak dsp.yaml; fi' EXIT
     python3 -c "
