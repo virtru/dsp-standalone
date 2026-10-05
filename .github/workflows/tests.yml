@@ -1,0 +1,32 @@
+name: Repository tests
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check shell syntax
+        run: |
+          for script in ./*.sh tests/*.sh; do
+            bash -n "$script"
+          done
+      - name: Run shell tests
+        run: |
+          for test_script in tests/test_*.sh; do
+            bash "$test_script"
+          done
+      - name: Run Go tests
+        run: go test ./...
