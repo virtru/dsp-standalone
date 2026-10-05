@@ -1403,13 +1403,27 @@ open('dsp.yaml', 'w').write(content)
   [[ "$KEYCLOAK_HEALTH" == "healthy" ]] || die "Keycloak did not become healthy before provisioning. Check: docker compose logs keycloak"
 
   KEYCLOAK_REALM_EXISTS=false
-  EXISTING_KEYCLOAK_REALM=$(curl -fksSo - --max-time 5 \
-    https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null \
-    | jq -r '.realm // empty' 2>/dev/null || true)
-  if [[ "$EXISTING_KEYCLOAK_REALM" == "opentdf" ]]; then
-    KEYCLOAK_REALM_EXISTS=true
-    log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
-  fi
+  REALM_PROBE_RESOLVED=false
+  for _ in {1..12}; do
+    if REALM_HTTP_STATUS=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time 5 \
+      https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null); then
+      case "$REALM_HTTP_STATUS" in
+        200)
+          KEYCLOAK_REALM_EXISTS=true
+          REALM_PROBE_RESOLVED=true
+          log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
+          break
+          ;;
+        404)
+          REALM_PROBE_RESOLVED=true
+          log_info "Keycloak realm is absent; provisioning will run"
+          break
+          ;;
+      esac
+    fi
+    sleep 5
+  done
+  [[ "$REALM_PROBE_RESOLVED" == true ]] || die "Could not determine whether the Keycloak realm exists. Check: docker compose logs keycloak"
   export KEYCLOAK_REALM_EXISTS
 
   log_info "Running: docker compose up -d"
