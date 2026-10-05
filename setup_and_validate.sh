@@ -20,10 +20,13 @@
 
 set -euo pipefail
 
-# Public DSP release supported by this local deployment. The downloadable
-# bundle and the platform container use separate version schemes.
-readonly DSP_BUNDLE_RELEASE="2.0.6.6"
-readonly DSP_PLATFORM_IMAGE_TAG="v2.7.14"
+# Fallback release values for legacy/default bundle directories whose names do
+# not include a release. A bundle selected with --bundle is authoritative: its
+# release is inferred from its name and its platform tag from its DSP CLI.
+readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.6.7"
+readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.7.15"
+DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
+DSP_PLATFORM_IMAGE_TAG="$DEFAULT_DSP_PLATFORM_IMAGE_TAG"
 readonly INVOCATION_DIR="$PWD"
 
 usage() {
@@ -33,7 +36,7 @@ Usage: ./setup_and_validate.sh [options]
 Set up and validate the local Virtru DSP development stack.
 
 Options:
-  --bundle PATH             DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive
+  --bundle PATH             DSP bundle directory or .tar.gz archive (version auto-detected)
   --add-namespace company   Provision and validate the optional company.com sample
   --skip-prereqs            Skip prerequisite installation; verify tools only
   --no-build                Reuse previously built Compose images
@@ -42,9 +45,9 @@ Options:
   -h, --help                Show this help
 
 Examples:
-  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE.tar.gz
-  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE.tar.gz
-  ./setup_and_validate.sh --validate-only --bundle .generated/virtru-dsp-bundle-$DSP_BUNDLE_RELEASE
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+  ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
 }
 
@@ -68,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)         usage; exit 0 ;;
     --bundle)
       if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "FATAL: --bundle requires a path to the DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive" >&2
+        echo "FATAL: --bundle requires a path to a DSP bundle directory or .tar.gz archive" >&2
         exit 1
       fi
       BUNDLE_PATH="$2"
@@ -77,7 +80,7 @@ while [[ $# -gt 0 ]]; do
     --bundle=*)
       BUNDLE_PATH="${1#*=}"
       if [[ -z "$BUNDLE_PATH" ]]; then
-        echo "FATAL: --bundle requires a path to the DSP $DSP_BUNDLE_RELEASE bundle directory or .tar.gz archive" >&2
+        echo "FATAL: --bundle requires a path to a DSP bundle directory or .tar.gz archive" >&2
         exit 1
       fi
       shift
@@ -514,20 +517,12 @@ provision_company_namespace() {
 
 resolve_tagging_pdp_workflow_source() {
   local bundle_dir="${1:-}"
-  local default_bundle_dir="$SCRIPT_DIR/virtru-dsp-bundle"
   local candidate=""
   local prompt_path=""
 
   if [[ -n "$bundle_dir" && -f "$bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
     candidate="$bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
     log_info "Using tagging PDP workflow from bundle: $candidate"
-    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
-    return 0
-  fi
-
-  if [[ -f "$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
-    candidate="$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
-    log_info "Using tagging PDP workflow from unpacked bundle: $candidate"
     TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
     return 0
   fi
@@ -674,9 +669,9 @@ stage_tagging_pdp_workflow() {
 ensure_bundle_directory_ready() {
   local bundle_dir="$1"
   local dsp_tar=""
+  local bundle_platform_output=""
   local bundle_platform_version=""
   local normalized_bundle_platform_version=""
-  local normalized_expected_platform_version="${DSP_PLATFORM_IMAGE_TAG#v}"
 
   if [[ ! -x "$bundle_dir/dsp" ]]; then
     case "$OS" in
@@ -695,16 +690,40 @@ ensure_bundle_directory_ready() {
     chmod +x "$bundle_dir/dsp"
   fi
 
-  bundle_platform_version=$("$bundle_dir/dsp" version 2>&1 \
-    | awk '$1 == "Version:" { print $2; exit }')
+  if ! bundle_platform_output=$("$bundle_dir/dsp" version 2>&1); then
+    log_fail "Could not run $bundle_dir/dsp version"
+    log_fail "Output: ${bundle_platform_output:-none}"
+    return 1
+  fi
+  bundle_platform_version=$(awk '$1 == "Version:" { print $2; exit }' <<<"$bundle_platform_output")
   normalized_bundle_platform_version="${bundle_platform_version#v}"
-  if [[ "$normalized_bundle_platform_version" != "$normalized_expected_platform_version" ]]; then
-    log_fail "DSP bundle CLI version mismatch in $bundle_dir"
-    log_fail "Expected $DSP_PLATFORM_IMAGE_TAG from bundle $DSP_BUNDLE_RELEASE; got ${bundle_platform_version:-unknown}."
+  if [[ ! "$normalized_bundle_platform_version" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z.-]+)?$ ]]; then
+    log_fail "Could not detect a valid DSP platform version from $bundle_dir/dsp"
+    log_fail "Reported version: ${bundle_platform_version:-unknown}"
     return 1
   fi
 
+  DSP_PLATFORM_IMAGE_TAG="v${normalized_bundle_platform_version}"
+  log_ok "Detected DSP platform $DSP_PLATFORM_IMAGE_TAG from bundle CLI"
   log_ok "DSP $bundle_platform_version CLI is ready in $bundle_dir"
+}
+
+set_bundle_release_from_path() {
+  local bundle_path="$1"
+  local bundle_name=""
+
+  bundle_name="$(basename "$bundle_path")"
+  bundle_name="${bundle_name%.tar.gz}"
+  if [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
+  elif [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
+  else
+    DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
+    if [[ "$bundle_name" != "virtru-dsp-bundle" ]]; then
+      log_warn "Could not infer the bundle release from '$bundle_name'; using $DSP_BUNDLE_RELEASE as its display label."
+    fi
+  fi
 }
 
 registry_has_dsp_tag() {
@@ -718,11 +737,19 @@ registry_has_dsp_tag() {
 
 unpack_bundle_archive() {
   local bundle_tar="$1"
-  local bundle_name bundle_dir unsafe_member
+  local bundle_name bundle_dir bundle_hash unsafe_member
 
   bundle_name="$(basename "$bundle_tar")"
   bundle_name="${bundle_name%.tar.gz}"
-  bundle_dir="$GENERATED_DIR/$bundle_name"
+  if command -v shasum >/dev/null 2>&1; then
+    bundle_hash=$(shasum -a 256 "$bundle_tar" | awk '{ print $1 }') || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    bundle_hash=$(sha256sum "$bundle_tar" | awk '{ print $1 }') || return 1
+  else
+    log_fail "A SHA-256 tool is required to verify the bundle archive cache"
+    return 1
+  fi
+  bundle_dir="$GENERATED_DIR/$bundle_name-$bundle_hash"
 
   if [[ -d "$bundle_dir" ]] && ensure_bundle_directory_ready "$bundle_dir"; then
     log_ok "Reusing unpacked DSP bundle: $bundle_dir"
@@ -755,6 +782,8 @@ unpack_bundle_archive() {
 prepare_bundle_input() {
   local bundle_input="$1"
 
+  set_bundle_release_from_path "$bundle_input"
+
   if [[ -f "$bundle_input" ]]; then
     if [[ "$bundle_input" != *.tar.gz ]]; then
       die "Expected --bundle to identify a Virtru DSP bundle .tar.gz archive or an unpacked bundle directory: $bundle_input"
@@ -773,12 +802,70 @@ prepare_bundle_input() {
   log_ok "Using DSP bundle $DSP_BUNDLE_RELEASE from $BUNDLE_DIR"
 }
 
-if [[ -n "$BUNDLE_PATH" ]]; then
+normalize_bundle_path() {
   BUNDLE_PATH="${BUNDLE_PATH/#\~/$HOME}"
   if [[ "$BUNDLE_PATH" != /* ]]; then
     BUNDLE_PATH="$INVOCATION_DIR/$BUNDLE_PATH"
   fi
-  prepare_bundle_input "$BUNDLE_PATH"
+}
+
+select_bundle() {
+  if [[ -n "$BUNDLE_PATH" ]]; then
+    normalize_bundle_path
+    prepare_bundle_input "$BUNDLE_PATH"
+    return 0
+  fi
+
+  if [[ -d "$SCRIPT_DIR/virtru-dsp-bundle" ]]; then
+    BUNDLE_PATH="$SCRIPT_DIR/virtru-dsp-bundle"
+    prepare_bundle_input "$BUNDLE_PATH"
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    die "A DSP bundle is required. Pass --bundle /path/to/bundle.tar.gz (or an unpacked bundle directory)."
+  fi
+
+  echo
+  log_info "A DSP bundle is required; its platform version will be detected automatically."
+  while true; do
+    read -rp "  Enter path to the Virtru DSP bundle directory or .tar.gz archive: " BUNDLE_PATH \
+      || die "Could not read a DSP bundle path."
+    if [[ -z "$BUNDLE_PATH" ]]; then
+      log_warn "Bundle path cannot be empty."
+      continue
+    fi
+    normalize_bundle_path
+    set_bundle_release_from_path "$BUNDLE_PATH"
+
+    if [[ -f "$BUNDLE_PATH" ]]; then
+      if [[ "$BUNDLE_PATH" != *.tar.gz ]]; then
+        log_warn "Expected a Virtru DSP bundle .tar.gz file or an unpacked bundle directory."
+        continue
+      fi
+      if ! unpack_bundle_archive "$BUNDLE_PATH"; then
+        log_warn "Could not prepare DSP bundle from $BUNDLE_PATH"
+        continue
+      fi
+      BUNDLE_DIR="$UNPACKED_BUNDLE_DIR"
+    elif [[ -d "$BUNDLE_PATH" ]]; then
+      if ! ensure_bundle_directory_ready "$BUNDLE_PATH"; then
+        log_warn "Could not prepare DSP bundle from $BUNDLE_PATH"
+        continue
+      fi
+      BUNDLE_DIR="$BUNDLE_PATH"
+    else
+      log_warn "DSP bundle path not found: $BUNDLE_PATH"
+      continue
+    fi
+
+    log_ok "Using DSP bundle $DSP_BUNDLE_RELEASE from $BUNDLE_DIR"
+    return 0
+  done
+}
+
+if [[ "$SDK_ONLY" == false ]]; then
+  select_bundle
 fi
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1336,7 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
   DSP_TAG="$DSP_PLATFORM_IMAGE_TAG"
   DSP_IMAGE="localhost:5000/virtru/data-security-platform:${DSP_TAG}"
+  export DSP_IMAGE
   log_ok "DSP bundle: $DSP_BUNDLE_RELEASE | platform image: $DSP_IMAGE"
 
   log_section "Starting Docker Compose stack"
@@ -1673,7 +1761,10 @@ else
     TAGGING_TEST_ARGS+=(--namespace company)
   fi
 
-  if bash "$SCRIPT_DIR/test_tagging.sh" "${TAGGING_TEST_ARGS[@]}"; then
+  if ! TAGGING_TRUCTL=$(find_tructl); then
+    check_fail "Tagging validation could not find tructl in the selected bundle"
+    ERRORS+=("Tagging validation failed — tructl was not found in the selected bundle")
+  elif TRUCTL="$TAGGING_TRUCTL" bash "$SCRIPT_DIR/test_tagging.sh" "${TAGGING_TEST_ARGS[@]}"; then
     check_pass "Tagging validation passed"
   else
     check_fail "Tagging validation failed"

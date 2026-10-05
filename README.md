@@ -10,18 +10,18 @@ development, policy experiments, and integration testing without Kubernetes.
 
 ## Release compatibility
 
-This revision supports one explicit release combination:
-
-| Component | Required version |
-|---|---|
-| Customer download | Virtru DSP bundle **2.0.6.6** |
-| DSP CLI and runtime | **2.7.14** |
-| Local registry image | `localhost:5000/virtru/data-security-platform:v2.7.14` |
-
-Download the bundle from
+Download a Virtru DSP bundle from
 [secure.virtru.com/download](https://secure.virtru.com/download). The setup
-script checks both the bundle CLI and image tag and stops on a mismatch. It
-does not silently use an older DSP image left in the local registry.
+script accepts a `.tar.gz` archive or an unpacked directory. It reads the bundle
+release from a name such as `virtru-dsp-bundle-2.0.6.7` and detects the platform
+version from the bundled `dsp version` command. It then loads and verifies that
+exact platform image tag in the local registry and passes the image to Docker
+Compose. An older image already in the registry is not selected automatically.
+
+The legacy `virtru-dsp-bundle/` directory has no release in its name, so the
+script uses `2.0.6.7` as its display label. Its platform image tag still comes
+from the bundled CLI. A differently named bundle also gets the fallback display
+label and a warning; its detected platform version remains authoritative.
 
 ### Platform status
 
@@ -42,7 +42,7 @@ increase startup time substantially.
 
 You need:
 
-- the Virtru DSP bundle 2.0.6.6 `.tar.gz` download;
+- a Virtru DSP bundle `.tar.gz` download or unpacked directory;
 - internet access for system packages, public Go modules, and container images;
 - enough disk space for the approximately 5 GB bundle, its unpacked copy, and
   the local container images; and
@@ -57,22 +57,27 @@ Apple Silicon, also enable Rosetta for amd64 emulation.
 
 ### 2. Run setup
 
-From this directory, pass either the downloaded archive or an already-unpacked
-bundle:
+From this directory, set `BUNDLE` to your downloaded archive or unpacked bundle
+directory. The release in this example is illustrative; use the path you received:
 
 ```bash
 cd dsp-standalone
-./setup_and_validate.sh \
-  --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz
+export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+./setup_and_validate.sh --bundle "$BUNDLE"
 ```
 
 The command installs or verifies prerequisites, safely unpacks the bundle under
-`.generated/`, creates local keys, loads the pinned DSP image, starts the
+`.generated/`, creates local keys, loads the detected DSP image, starts the
 stack, provisions the sample federal policy, and runs infrastructure, tagging,
 and Go SDK tests.
 
-The unpacked bundle is reused on later runs. Passing the same archive again
-does not re-extract it when the cached CLI passes the version check.
+If you omit `--bundle`, setup uses `./virtru-dsp-bundle` when that directory
+exists. Otherwise it prompts for a bundle path in an interactive terminal. In
+non-interactive runs, pass `--bundle` explicitly.
+
+The unpacked bundle is reused on later runs. Setup keys the cache by the
+archive's SHA-256 checksum, so replacing an archive under the same filename
+creates a new unpacked directory instead of reusing stale files.
 
 ### 3. Complete first-time Linux setup
 
@@ -85,7 +90,7 @@ newgrp docker
 
 ./setup_and_validate.sh \
   --skip-prereqs \
-  --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz
+  --bundle "$BUNDLE"
 ```
 
 Logging out and back in is an alternative to `newgrp docker`.
@@ -112,7 +117,7 @@ and should exit with status 0.
 
 | Option | Behavior |
 |---|---|
-| `--bundle PATH` | Use a bundle 2.0.6.6 archive or unpacked directory |
+| `--bundle PATH` | Use a bundle archive or unpacked directory; detect its platform version |
 | `--skip-prereqs` | Skip installation but still verify required tools |
 | `--no-build` | Reuse previously built Compose images |
 | `--validate-only` | Validate an already-running stack without starting it |
@@ -125,7 +130,7 @@ Common repeat commands:
 # Full validation against a running stack
 ./setup_and_validate.sh \
   --validate-only \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6
+  --bundle "$BUNDLE"
 
 # Go SDK tests only; a bundle is not required in this mode
 ./setup_and_validate.sh --sdk-only
@@ -134,7 +139,7 @@ Common repeat commands:
 ./setup_and_validate.sh \
   --skip-prereqs \
   --no-build \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6
+  --bundle "$BUNDLE"
 ```
 
 Go dependency/build caches and runtime artifacts such as `alex_test.tdf` are
@@ -149,7 +154,7 @@ attributes and four department users. For a new stack:
 
 ```bash
 ./setup_and_validate.sh \
-  --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz \
+  --bundle "$BUNDLE" \
   --add-namespace company
 ```
 
@@ -158,7 +163,7 @@ To add it to an already-running stack and run its validation:
 ```bash
 ./setup_and_validate.sh \
   --validate-only \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6 \
+  --bundle "$BUNDLE" \
   --add-namespace company
 ```
 
@@ -215,9 +220,14 @@ docker compose logs dsp-provision-federal-policy
 
 ### Rebuild explicitly
 
+For a manual rebuild, use the version reported by the selected bundle's CLI.
+Set `BUNDLE_DIR` to the unpacked path in setup's "Using DSP bundle" log line:
+
 ```bash
-docker compose build \
-  --build-arg DSP_IMAGE=localhost:5000/virtru/data-security-platform:v2.7.14
+BUNDLE_DIR=/path/from/setup-log
+DSP_VERSION=$("$BUNDLE_DIR/dsp" version | awk '$1 == "Version:" { print $2; exit }')
+export DSP_IMAGE="localhost:5000/virtru/data-security-platform:v${DSP_VERSION#v}"
+docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
 docker compose up -d
 ```
 
@@ -251,7 +261,7 @@ use.
 ```bash
 ./setup_and_validate.sh \
   --validate-only \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6
+  --bundle "$BUNDLE"
 ```
 
 The command checks service health, provisioning, the runtime version, policy
@@ -415,8 +425,8 @@ for UI operations.
 
 ### Change the federal policy
 
-`sample.federal_policy.yaml` is copied from bundle 2.0.6.6 during setup and is
-gitignored because it is release-generated input. It contains attribute
+`sample.federal_policy.yaml` is copied from the selected bundle during setup and
+is gitignored because it is release-generated input. It contains attribute
 definitions, values, condition sets, and subject mappings.
 
 The sample policy provisioner creates objects; it is not a migration engine.
@@ -429,7 +439,7 @@ docker compose down -v
 
 ./setup_and_validate.sh \
   --skip-prereqs \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6
+  --bundle "$BUNDLE"
 ```
 
 For non-destructive updates, use the `tructl policy` update commands supplied
@@ -439,7 +449,7 @@ by the same bundle rather than rerunning the create-only sample provisioner.
 
 | File | Purpose |
 |---|---|
-| [docker-compose.yaml](docker-compose.yaml) | Services, networking, health checks, and pinned image defaults |
+| [docker-compose.yaml](docker-compose.yaml) | Services, networking, health checks, and a fallback image for manual Compose commands |
 | [dsp.yaml](dsp.yaml) | DSP runtime configuration |
 | [sample.keycloak.yaml](sample.keycloak.yaml) | Default realm, clients, users, and user claims |
 | `sample.federal_policy.yaml` | Generated local copy of the bundle's federal policy |
@@ -461,14 +471,18 @@ If that does not work, log out and back in. Then rerun setup with
 
 ### Bundle or image version mismatch
 
-Confirm the selected bundle's CLI:
+Use the unpacked path in setup's "Using DSP bundle" log line to inspect its CLI:
 
 ```bash
-.generated/virtru-dsp-bundle-2.0.6.6/dsp version
+BUNDLE_DIR=/path/from/setup-log
+"$BUNDLE_DIR/dsp" version
 ```
 
-It must report `v2.7.14`. If the registry contains older images, leave them in
-place; setup selects and verifies `v2.7.14` explicitly.
+Setup expects the local registry image tag to match that reported version with
+a leading `v`. It rejects failed CLI commands, missing or invalid versions,
+and a bundle that does not supply the matching image. Docker Compose's
+`v2.7.15` fallback applies only to manual Compose commands that do not set
+`DSP_IMAGE`; the setup script exports the detected image before invoking Compose.
 
 ### Port 5000 returns 403 on macOS
 
@@ -511,7 +525,7 @@ docker compose down -v
 
 ./setup_and_validate.sh \
   --skip-prereqs \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6
+  --bundle "$BUNDLE"
 ```
 
 Do not delete the downloaded customer bundle; it is needed to rebuild the
