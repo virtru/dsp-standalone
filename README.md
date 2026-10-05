@@ -213,6 +213,15 @@ DSP image, and built the local images:
 KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
+On macOS, include the health-check override for both commands:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.mac.yml \
+  build --build-arg "DSP_IMAGE=$DSP_IMAGE"
+KEYCLOAK_REALM_EXISTS=true docker compose \
+  -f docker-compose.yaml -f docker-compose.mac.yml up -d
+```
+
 On macOS, include the checked-in health-check override when starting directly:
 
 ```bash

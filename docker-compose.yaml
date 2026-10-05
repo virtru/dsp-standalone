@@ -122,7 +122,7 @@ services:
       args:
         DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.15}
     # The bundled provisioner cannot safely rerun against existing users.
-    # Setup checks the realm over HTTPS before starting Compose.
+    # Setup checks the realm and sample resources over HTTPS before starting Compose.
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -218,6 +218,24 @@ services:
       - |
         creds='{"clientId":"opentdf","clientSecret":"secret"}'
         host=https://local-dsp.virtru.com:8080
+        count_fqn() {
+          prefix="$$1"
+          printf '%s' "$$2" | tr ',' '\n' | while IFS= read -r item; do
+            case "$$item" in *"$$prefix"*) printf 'x\n' ;; esac
+          done | wc -l | tr -d ' '
+        }
+        policy_complete() {
+          attributes=$$(/usr/bin/dsp tructl policy attributes list --json --with-client-creds "$$creds" --host "$$host") || return 1
+          subjects=$$(/usr/bin/dsp tructl policy subject-mappings list --json --with-client-creds "$$creds" --host "$$host") || return 1
+          resources=$$(/usr/bin/dsp tructl policy resource-mappings list --json --with-client-creds "$$creds" --host "$$host") || return 1
+          [ "$$(count_fqn 'https://demo.com/attr/classification/value/' "$$attributes")" -ge 4 ] || return 1
+          [ "$$(count_fqn 'https://demo.com/attr/needtoknow/value/' "$$attributes")" -ge 4 ] || return 1
+          [ "$$(count_fqn 'https://demo.com/attr/relto/value/' "$$attributes")" -ge 252 ] || return 1
+          [ "$$(count_fqn 'https://demo.com/attr/' "$$subjects")" -ge 259 ] || return 1
+          for value in topsecret secret confidential unclassified; do
+            case "$$resources" in *"https://demo.com/attr/classification/value/$$value"*) ;; *) return 1 ;; esac
+          done
+        }
         lookup_ok=false
         for attempt in 1 2 3 4 5 6; do
           if namespaces=$$(/usr/bin/dsp tructl policy attributes namespaces list --json --with-client-creds "$$creds" --host "$$host"); then
@@ -231,9 +249,17 @@ services:
           exit 1
         fi
         case "$$namespaces" in
-          *'"name": "demo.com"'*) echo 'Federal namespace already exists; skipping provision'; exit 0 ;;
+          *'"name": "demo.com"'*)
+            if policy_complete; then
+              echo 'Federal policy is complete; skipping provision'
+              exit 0
+            fi
+            echo 'Federal namespace exists but policy import is incomplete. Inspect provisioner logs and restore missing policy objects, or back up and reset the local database.' >&2
+            exit 1
+            ;;
         esac
-        exec /usr/bin/dsp tructl provision policy -f ./samples/defaults/federal_policy.yaml --with-client-creds "$$creds" --host "$$host"
+        /usr/bin/dsp tructl provision policy -f ./samples/defaults/federal_policy.yaml --with-client-creds "$$creds" --host "$$host"
+        policy_complete || { echo 'Federal policy import returned without all expected objects' >&2; exit 1; }
     network_mode: host
     restart: on-failure
     depends_on:

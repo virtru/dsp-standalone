@@ -425,6 +425,40 @@ get_keycloak_admin_token() {
     2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true
 }
 
+keycloak_sample_is_present() {
+  local admin_token clients users roles groups expected
+  admin_token="$(get_keycloak_admin_token)"
+  [[ -n "$admin_token" ]] || return 1
+
+  clients="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/clients?max=200' \
+    | jq -r '.[].clientId // empty')" || return 1
+  users="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/users?max=200' \
+    | jq -r '.[].username // empty')" || return 1
+  roles="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/roles' \
+    | jq -r '.[].name // empty')" || return 1
+  groups="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/groups?max=200' \
+    | jq -r '.[].name // empty')" || return 1
+
+  # These are the resources created by sample.keycloak.yaml. A realm can be
+  # visible before its one-shot importer has finished creating them.
+  for expected in secure-object-proxy secure-object-proxy-test opentdf opentdf-sdk \
+    opentdf-public tdf-entity-resolution tdf-authorization-svc dsp-cop-client; do
+    grep -qx "$expected" <<<"$clients" || return 1
+  done
+  for expected in secret-usa-aaa top-secret-gbr-bbb classified-fra-int \
+    unclassified-mex-user top-secret-usa-aaa eng-user hr-user accounting-user sales-user; do
+    grep -qx "$expected" <<<"$users" || return 1
+  done
+  for expected in opentdf-org-admin opentdf-admin opentdf-standard; do
+    grep -qx "$expected" <<<"$roles" || return 1
+  done
+  grep -qx mygroup <<<"$groups"
+}
+
 list_policy_attribute_pairs() {
   local token="$1"
   curl -ksSo - --max-time 10 -X POST \
@@ -1412,6 +1446,7 @@ open('dsp.yaml', 'w').write(content)
       https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null); then
       case "$REALM_HTTP_STATUS" in
         200)
+          keycloak_sample_is_present || die "Keycloak realm exists but sample clients, users, roles, or group are missing. Inspect provisioning logs and restore the missing resources before retrying, or back up and reset the local database."
           KEYCLOAK_REALM_EXISTS=true
           REALM_PROBE_RESOLVED=true
           log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
@@ -1436,7 +1471,11 @@ open('dsp.yaml', 'w').write(content)
   fi
 
   log_info "Running: docker compose up -d"
-  docker compose up -d
+  if ! docker compose up -d; then
+    log_warn "Compose did not settle on the first start; retrying once after services recover"
+    sleep 5
+    docker compose up -d || die "Compose failed to start the DSP stack. Check: docker compose ps -a; docker compose logs dsp"
+  fi
 
   log_ok "Stack started in detached mode"
 
