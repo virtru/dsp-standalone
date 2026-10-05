@@ -12,13 +12,13 @@ validation tests through the main setup script:
 ```bash
 # New stack
 ./setup_and_validate.sh \
-  --bundle /path/to/virtru-dsp-bundle-2.0.6.6.tar.gz \
+  --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz \
   --add-namespace company
 
 # Already-running stack
 ./setup_and_validate.sh \
   --validate-only \
-  --bundle .generated/virtru-dsp-bundle-2.0.6.6 \
+  --bundle .generated/virtru-dsp-bundle-2.0.7 \
   --add-namespace company
 ```
 
@@ -91,7 +91,7 @@ experimenting:
 ./company-policy/create_company_policy.sh
 
 # Or select it explicitly
-TRUCTL=.generated/virtru-dsp-bundle-2.0.6.6/tructl \
+TRUCTL=.generated/virtru-dsp-bundle-2.0.7/tructl \
   ./company-policy/create_company_policy.sh
 ```
 

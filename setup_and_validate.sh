@@ -23,8 +23,8 @@ set -euo pipefail
 # Fallback release values for legacy/default bundle directories whose names do
 # not include a release. A bundle selected with --bundle is authoritative: its
 # release is inferred from its name and its platform tag from its DSP CLI.
-readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.6.6"
-readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.7.14"
+readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.7"
+readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.8.2"
 DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
 DSP_PLATFORM_IMAGE_TAG="$DEFAULT_DSP_PLATFORM_IMAGE_TAG"
 readonly INVOCATION_DIR="$PWD"

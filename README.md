@@ -19,7 +19,7 @@ exact platform image tag in the local registry and passes the image to Docker
 Compose. An older image already in the registry is not selected automatically.
 
 The legacy `virtru-dsp-bundle/` directory has no release in its name, so the
-script uses `2.0.6.6` as its display label. Its platform image tag still comes
+script uses `2.0.7` as its display label. Its platform image tag still comes
 from the bundled CLI. A differently named bundle also gets the fallback display
 label and a warning; its detected platform version remains authoritative.
 
@@ -62,7 +62,7 @@ directory. The release in this example is illustrative; use the path you receive
 
 ```bash
 cd dsp-standalone
-export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+export BUNDLE=/path/to/virtru-dsp-bundle-2.0.7.tar.gz
 ./setup_and_validate.sh --bundle "$BUNDLE"
 ```
 
@@ -479,7 +479,7 @@ Use the unpacked bundle path printed by setup to inspect its CLI:
 Setup expects the local registry image tag to match that reported version with
 a leading `v`. It rejects failed CLI commands, missing or invalid versions,
 and a bundle that does not supply the matching image. Docker Compose's
-`v2.7.14` fallback applies
+`v2.8.2` fallback applies
 only to manual Compose commands that do not set `DSP_IMAGE`; the setup script
 exports the detected image before invoking Compose.
 

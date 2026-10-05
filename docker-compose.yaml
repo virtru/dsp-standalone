@@ -120,7 +120,7 @@ services:
       dockerfile: ./dev.dsp.Dockerfile
       network: host
       args:
-        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.8.2}
     command:
       - tructl
       - provision
@@ -163,7 +163,7 @@ services:
       dockerfile: ./dev.dsp.Dockerfile
       network: host
       args:
-        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.8.2}
     command: ["start"]
     network_mode: host
     restart: always
@@ -204,7 +204,7 @@ services:
       dockerfile: ./dev.dsp.Dockerfile
       network: host
       args:
-        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.7.14}
+        DSP_IMAGE: ${DSP_IMAGE:-localhost:5000/virtru/data-security-platform:v2.8.2}
     command:
       - tructl
       - provision

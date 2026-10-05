@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6@sha256:ac85f380a63b13dfcefa89046420e1781752bab202122f8f50032edf31be0021
 # Set your runtime image (override with --build-arg)
-# DSP_IMAGE must be supplied at build time (the supported DSP 2.0.6.6 bundle
-# provides localhost:5000/virtru/data-security-platform:v2.7.14).
+# DSP_IMAGE must be supplied at build time. setup_and_validate.sh derives it
+# from the selected bundle's DSP CLI version.
 # setup_and_validate.sh verifies that exact public-release tag in the registry.
 ARG DSP_IMAGE
 
