@@ -16,8 +16,8 @@ declare -F ensure_bundle_directory_ready >/dev/null
 
 log_ok() { :; }
 log_fail() { :; }
-DSP_PLATFORM_IMAGE_TAG="v2.7.14"
-DSP_BUNDLE_RELEASE="2.0.6.6"
+DSP_PLATFORM_IMAGE_TAG="v2.7.15"
+DSP_BUNDLE_RELEASE="2.0.6.7"
 
 cat > "$tmp_dir/dsp" <<'EOF'
 #!/usr/bin/env bash
@@ -26,13 +26,13 @@ printf 'Version: %s\n' "$TEST_DSP_VERSION"
 EOF
 chmod +x "$tmp_dir/dsp"
 
-for version in v2.7.14 2.7.14; do
+for version in v2.7.15 2.7.15; do
   export TEST_DSP_VERSION="$version"
   ensure_bundle_directory_ready "$tmp_dir" || {
     echo "Rejected valid bundle version $version" >&2
     exit 1
   }
-  [[ "$DSP_PLATFORM_IMAGE_TAG" == "v2.7.14" ]] || {
+  [[ "$DSP_PLATFORM_IMAGE_TAG" == "v2.7.15" ]] || {
     echo "Unexpected image tag $DSP_PLATFORM_IMAGE_TAG" >&2
     exit 1
   }
