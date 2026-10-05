@@ -121,6 +121,9 @@ if [[ "$SKIP_BUILDX" == false ]]; then
   echo "=== Checking Docker Buildx ==="
   if ! docker buildx version &> /dev/null; then
     echo "Docker Buildx plugin not found — installing..."
+    if [[ ! -f /etc/yum.repos.d/docker-ce.repo ]]; then
+      sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+    fi
     sudo dnf install -y docker-buildx-plugin
   fi
   docker buildx version

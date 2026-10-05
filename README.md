@@ -66,6 +66,23 @@ export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
 ./setup_and_validate.sh --bundle "$BUNDLE"
 ```
 
+On Apple M4 with Colima, if Keycloak exits with SIGILL/code 134, try the
+[OpenTDF SVE workaround](https://opentdf.io/getting-started) for that run:
+
+```bash
+JAVA_TOOL_OPTIONS='-XX:+IgnoreUnrecognizedVMOptions -XX:UseSVE=0' \
+  ./setup_and_validate.sh --bundle "$BUNDLE"
+```
+
+The macOS Compose override passes this setting to Keycloak's JVM and Java
+health check. Leave it unset when Keycloak starts normally.
+
+Existing stacks started with `KC_DB_VENDOR` stored Keycloak data in the
+container's H2 database. The corrected `KC_DB` setting starts with the
+PostgreSQL database and setup provisions a new sample realm there. Manually
+created users or realm changes in H2 are not migrated; back up that container's
+`/opt/keycloak/data/h2` directory before upgrading if you need them.
+
 The command installs or verifies prerequisites, safely unpacks the bundle under
 `.generated/`, creates local keys, loads the detected DSP image, starts the
 stack, provisions the sample federal policy, and runs infrastructure, tagging,

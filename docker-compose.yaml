@@ -66,7 +66,7 @@ services:
     network_mode: host
     environment:
       KC_HTTP_RELATIVE_PATH: /auth
-      KC_DB_VENDOR: postgres
+      KC_DB: postgres
       KC_DB_URL_HOST: localhost
       KC_DB_URL_PORT: 25434
       KC_DB_URL_DATABASE: keycloak
@@ -218,11 +218,21 @@ services:
       - |
         creds='{"clientId":"opentdf","clientSecret":"secret"}'
         host=https://local-dsp.virtru.com:8080
-        if namespaces=$$(/usr/bin/dsp tructl policy attributes namespaces list --json --with-client-creds "$$creds" --host "$$host"); then
-          case "$$namespaces" in
-            *'"name": "demo.com"'*) echo 'Federal namespace already exists; skipping provision'; exit 0 ;;
-          esac
+        lookup_ok=false
+        for attempt in 1 2 3 4 5 6; do
+          if namespaces=$$(/usr/bin/dsp tructl policy attributes namespaces list --json --with-client-creds "$$creds" --host "$$host"); then
+            lookup_ok=true
+            break
+          fi
+          sleep 5
+        done
+        if [ "$$lookup_ok" != true ]; then
+          echo 'Could not determine whether the federal namespace exists' >&2
+          exit 1
         fi
+        case "$$namespaces" in
+          *'"name": "demo.com"'*) echo 'Federal namespace already exists; skipping provision'; exit 0 ;;
+        esac
         exec /usr/bin/dsp tructl provision policy -f ./samples/defaults/federal_policy.yaml --with-client-creds "$$creds" --host "$$host"
     network_mode: host
     restart: on-failure

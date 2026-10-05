@@ -71,15 +71,22 @@ sudo apt install -y \
 # ------------------------------------------------------------
 # Docker (runtime + compose)
 # ------------------------------------------------------------
-echo "=== Installing Docker and Docker Compose ==="
-if ! command -v docker &> /dev/null; then
-  sudo apt remove -y docker docker-engine docker.io containerd runc || true
+ensure_docker_ce_apt_repo() {
+  if apt-cache show docker-buildx-plugin &> /dev/null; then
+    return 0
+  fi
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
   echo \
     "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] \
     https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
     sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
   sudo apt update -y
+}
+
+echo "=== Installing Docker and Docker Compose ==="
+if ! command -v docker &> /dev/null; then
+  sudo apt remove -y docker docker-engine docker.io containerd runc || true
+  ensure_docker_ce_apt_repo
   DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-compose-plugin)
   if [[ "$SKIP_BUILDX" == false ]]; then
     DOCKER_PACKAGES+=(docker-buildx-plugin)
@@ -103,7 +110,12 @@ if [[ "$SKIP_BUILDX" == false ]]; then
   echo "=== Checking Docker Buildx ==="
   if ! docker buildx version &> /dev/null; then
     echo "Docker Buildx plugin not found — installing..."
-    sudo apt install -y docker-buildx-plugin
+    if dpkg-query -W -f='${Status}' docker.io 2>/dev/null | grep -q 'install ok installed'; then
+      sudo apt install -y docker-buildx
+    else
+      ensure_docker_ce_apt_repo
+      sudo apt install -y docker-buildx-plugin
+    fi
   fi
   docker buildx version
 fi

@@ -10,6 +10,9 @@
 
 services:
   keycloak:
+    environment:
+      # Opt-in workaround for Java SIGILL on some Apple M4 Colima hosts.
+      - JAVA_TOOL_OPTIONS
     healthcheck:
       test:
         - CMD-SHELL

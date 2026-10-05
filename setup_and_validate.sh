@@ -1426,6 +1426,12 @@ open('dsp.yaml', 'w').write(content)
   [[ "$REALM_PROBE_RESOLVED" == true ]] || die "Could not determine whether the Keycloak realm exists. Check: docker compose logs keycloak"
   export KEYCLOAK_REALM_EXISTS
 
+  # A newly created realm has new signing keys. Stop an existing DSP process so
+  # it starts after provisioning and does not keep the previous realm's JWKS.
+  if [[ "$KEYCLOAK_REALM_EXISTS" == false ]]; then
+    docker compose stop dsp-provision-federal-policy dsp
+  fi
+
   log_info "Running: docker compose up -d"
   docker compose up -d
 
@@ -1618,8 +1624,9 @@ else
   ERRORS+=("DSP policy schema empty or missing")
 fi
 
-KC_TABLES=$(docker exec virtru-dsp-only-keycloak-db-1 psql -U postgres -d keycloak -c "\dt *" 2>/dev/null | grep -c "row" || echo "0")
-if [[ "$KC_TABLES" -gt 0 ]]; then
+KC_TABLES=$(docker exec virtru-dsp-only-keycloak-db-1 psql -U postgres -d keycloak -tAc \
+  "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null || true)
+if [[ "$KC_TABLES" =~ ^[0-9]+$ ]] && (( KC_TABLES > 0 )); then
   check_pass "Keycloak DB has tables"
 else
   check_fail "No tables found in Keycloak DB"
