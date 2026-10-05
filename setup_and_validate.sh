@@ -23,8 +23,8 @@ set -euo pipefail
 # Fallback release values for legacy/default bundle directories whose names do
 # not include a release. A bundle selected with --bundle is authoritative: its
 # release is inferred from its name and its platform tag from its DSP CLI.
-readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.7"
-readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.8.2"
+readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.6.7"
+readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.7.15"
 DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
 DSP_PLATFORM_IMAGE_TAG="$DEFAULT_DSP_PLATFORM_IMAGE_TAG"
 readonly INVOCATION_DIR="$PWD"
@@ -45,8 +45,8 @@ Options:
   -h, --help                Show this help
 
 Examples:
-  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz
-  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
   ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
 }

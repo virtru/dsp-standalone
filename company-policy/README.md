@@ -10,7 +10,7 @@ From `dsp-standalone/`, provision the namespace, users, tagging overlay, and
 validation tests through the main setup script:
 
 ```bash
-export BUNDLE=/path/to/virtru-dsp-bundle-2.0.7.tar.gz
+export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
 
 # New stack
 ./setup_and_validate.sh \
