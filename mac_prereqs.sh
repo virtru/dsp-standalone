@@ -3,6 +3,14 @@
 
 set -e
 
+SKIP_BUILDX=false
+if [[ "${1:-}" == "--no-build" ]]; then
+  SKIP_BUILDX=true
+elif [[ $# -gt 0 ]]; then
+  echo "Unknown prerequisite option: $1" >&2
+  exit 1
+fi
+
 install_with_brew() {
   if ! command -v brew &> /dev/null; then
     echo "Homebrew is required to install missing tool: $1" >&2
@@ -41,14 +49,18 @@ if ! docker compose version &> /dev/null; then
 fi
 docker compose version
 
-echo "=== Checking Docker Buildx ==="
-if ! docker buildx version &> /dev/null; then
-  if ! command -v brew &> /dev/null || [[ ! -x "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" ]]; then
-    install_with_brew docker-buildx
+if [[ "$SKIP_BUILDX" == false ]]; then
+  echo "=== Checking Docker Buildx ==="
+  if ! docker buildx version &> /dev/null; then
+    if ! command -v brew &> /dev/null || [[ ! -x "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" ]]; then
+      install_with_brew docker-buildx
+    fi
+    mkdir -p "$HOME/.docker/cli-plugins"
+    ln -sfn "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" "$HOME/.docker/cli-plugins/docker-buildx"
   fi
-  mkdir -p "$HOME/.docker/cli-plugins"
-  ln -sfn "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" "$HOME/.docker/cli-plugins/docker-buildx"
+  docker buildx version
+else
+  echo "=== Skipping Docker Buildx (--no-build) ==="
 fi
-docker buildx version
 
 echo "=== Prerequisite setup complete ==="

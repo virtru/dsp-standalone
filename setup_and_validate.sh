@@ -902,11 +902,19 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
       chmod +x "$PREREQS_SCRIPT"
     fi
 
-    log_info "Executing: $PREREQS_SCRIPT"
+    PREREQS_OPTION=""
+    if [[ "$OS" == "darwin" && "$NO_BUILD" == true ]]; then
+      PREREQS_OPTION="--no-build"
+    fi
+    log_info "Executing: $PREREQS_SCRIPT $PREREQS_OPTION"
     echo
 
     PREREQS_EXIT=0
-    bash "$PREREQS_SCRIPT" || PREREQS_EXIT=$?
+    if [[ -n "$PREREQS_OPTION" ]]; then
+      bash "$PREREQS_SCRIPT" "$PREREQS_OPTION" || PREREQS_EXIT=$?
+    else
+      bash "$PREREQS_SCRIPT" || PREREQS_EXIT=$?
+    fi
 
     echo
     if [[ $PREREQS_EXIT -ne 0 ]]; then
@@ -1356,10 +1364,11 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
   # On Linux, strip the 'sharepoint' block from dsp.yaml before the build —
   # this DSP version does not recognise 'encryptedSearchKeyPath' and refuses
-  # to start with a config validation error. The host file is restored after
-  # the build so macOS checkouts are unaffected.
-  if [[ "$OS" == "linux" ]]; then
+  # to start with a config validation error. Restore the host file immediately
+  # after building, including when the build exits with an error.
+  if [[ "$OS" == "linux" && "$NO_BUILD" != true ]]; then
     cp dsp.yaml dsp.yaml.bak
+    trap 'if [[ -f dsp.yaml.bak ]]; then mv dsp.yaml.bak dsp.yaml; fi' EXIT
     python3 -c "
 import re, sys
 content = open('dsp.yaml').read()
@@ -1372,6 +1381,12 @@ open('dsp.yaml', 'w').write(content)
   if [[ "$NO_BUILD" != true ]]; then
     log_info "Running: docker compose build --build-arg DSP_IMAGE=${DSP_IMAGE}"
     docker compose build --build-arg "DSP_IMAGE=${DSP_IMAGE}"
+  fi
+
+  if [[ "$OS" == "linux" && "$NO_BUILD" != true ]]; then
+    mv dsp.yaml.bak dsp.yaml
+    trap - EXIT
+    log_info "dsp.yaml restored"
   fi
 
   # Query the persisted realm only after Keycloak is healthy. A probe before
@@ -1399,12 +1414,6 @@ open('dsp.yaml', 'w').write(content)
 
   log_info "Running: docker compose up -d"
   docker compose up -d
-
-  # Restore original dsp.yaml now that the image is built
-  if [[ "$OS" == "linux" && -f dsp.yaml.bak ]]; then
-    mv dsp.yaml.bak dsp.yaml
-    log_info "dsp.yaml restored"
-  fi
 
   log_ok "Stack started in detached mode"
 
