@@ -1344,16 +1344,6 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   export DSP_IMAGE
   log_ok "DSP bundle: $DSP_BUNDLE_RELEASE | platform image: $DSP_IMAGE"
 
-  KEYCLOAK_REALM_EXISTS=false
-  EXISTING_KEYCLOAK_REALM=$(curl -fksSo - --max-time 5 \
-    https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null \
-    | jq -r '.realm // empty' 2>/dev/null || true)
-  if [[ "$EXISTING_KEYCLOAK_REALM" == "opentdf" ]]; then
-    KEYCLOAK_REALM_EXISTS=true
-    log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
-  fi
-  export KEYCLOAK_REALM_EXISTS
-
   log_section "Starting Docker Compose stack"
 
   # On Linux, strip the 'sharepoint' block from dsp.yaml before the build —
@@ -1371,15 +1361,36 @@ open('dsp.yaml', 'w').write(content)
     log_info "dsp.yaml patched for Linux (sharepoint block removed)"
   fi
 
-  if [[ "$NO_BUILD" == true ]]; then
-    log_info "Running: docker compose up -d (--no-build: using cached images)"
-    docker compose up -d
-  else
+  if [[ "$NO_BUILD" != true ]]; then
     log_info "Running: docker compose build --build-arg DSP_IMAGE=${DSP_IMAGE}"
     docker compose build --build-arg "DSP_IMAGE=${DSP_IMAGE}"
-    log_info "Running: docker compose up -d"
-    docker compose up -d
   fi
+
+  # Query the persisted realm only after Keycloak is healthy. A probe before
+  # starting Compose is stale when the Docker runtime has just been restarted.
+  log_info "Starting Keycloak before checking for an existing realm..."
+  docker compose up -d keycloak-db keycloak
+  KEYCLOAK_CONTAINER=$(docker compose ps -q keycloak)
+  KEYCLOAK_HEALTH=""
+  for _ in {1..36}; do
+    KEYCLOAK_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$KEYCLOAK_CONTAINER" 2>/dev/null || true)
+    [[ "$KEYCLOAK_HEALTH" == "healthy" ]] && break
+    sleep 5
+  done
+  [[ "$KEYCLOAK_HEALTH" == "healthy" ]] || die "Keycloak did not become healthy before provisioning. Check: docker compose logs keycloak"
+
+  KEYCLOAK_REALM_EXISTS=false
+  EXISTING_KEYCLOAK_REALM=$(curl -fksSo - --max-time 5 \
+    https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null \
+    | jq -r '.realm // empty' 2>/dev/null || true)
+  if [[ "$EXISTING_KEYCLOAK_REALM" == "opentdf" ]]; then
+    KEYCLOAK_REALM_EXISTS=true
+    log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
+  fi
+  export KEYCLOAK_REALM_EXISTS
+
+  log_info "Running: docker compose up -d"
+  docker compose up -d
 
   # Restore original dsp.yaml now that the image is built
   if [[ "$OS" == "linux" && -f dsp.yaml.bak ]]; then
