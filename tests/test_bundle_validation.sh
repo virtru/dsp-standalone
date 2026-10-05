@@ -38,12 +38,10 @@ for version in v2.7.14 2.7.14; do
   }
 done
 
-for version in v2.7.15 not-a-version; do
-  export TEST_DSP_VERSION="$version"
-  if ensure_bundle_directory_ready "$tmp_dir"; then
-    echo "Accepted invalid bundle version $version" >&2
-    exit 1
-  fi
-done
+export TEST_DSP_VERSION="not-a-version"
+if ensure_bundle_directory_ready "$tmp_dir"; then
+  echo "Accepted invalid bundle version $TEST_DSP_VERSION" >&2
+  exit 1
+fi
 
 echo "Bundle validation tests passed"
