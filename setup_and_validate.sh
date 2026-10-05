@@ -677,6 +677,7 @@ stage_tagging_pdp_workflow() {
 ensure_bundle_directory_ready() {
   local bundle_dir="$1"
   local dsp_tar=""
+  local bundle_platform_output=""
   local bundle_platform_version=""
   local normalized_bundle_platform_version=""
 
@@ -697,8 +698,12 @@ ensure_bundle_directory_ready() {
     chmod +x "$bundle_dir/dsp"
   fi
 
-  bundle_platform_version=$("$bundle_dir/dsp" version 2>&1 \
-    | awk '$1 == "Version:" { print $2; exit }' || true)
+  if ! bundle_platform_output=$("$bundle_dir/dsp" version 2>&1); then
+    log_fail "Could not run $bundle_dir/dsp version"
+    log_fail "Output: ${bundle_platform_output:-none}"
+    return 1
+  fi
+  bundle_platform_version=$(awk '$1 == "Version:" { print $2; exit }' <<<"$bundle_platform_output")
   normalized_bundle_platform_version="${bundle_platform_version#v}"
   if [[ ! "$normalized_bundle_platform_version" =~ ^[0-9]+(\.[0-9]+){2}([._-][0-9A-Za-z.-]+)?$ ]]; then
     log_fail "Could not detect a valid DSP platform version from $bundle_dir/dsp"

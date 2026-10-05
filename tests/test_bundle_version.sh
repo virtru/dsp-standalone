@@ -56,5 +56,6 @@ expect_version "v2.7.15" "v2.7.15"
 expect_version "2.7.16" "v2.7.16"
 expect_invalid_version "not-a-version" 0
 expect_invalid_version "" 1
+expect_invalid_version "v2.7.15" 1
 
 echo "Bundle platform version tests passed"

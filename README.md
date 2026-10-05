@@ -477,8 +477,9 @@ Use the unpacked bundle path printed by setup to inspect its CLI:
 ```
 
 Setup expects the local registry image tag to match that reported version with
-a leading `v`. It rejects missing or invalid CLI versions and a bundle that
-does not supply the matching image. Docker Compose's `v2.7.14` fallback applies
+a leading `v`. It rejects failed CLI commands, missing or invalid versions,
+and a bundle that does not supply the matching image. Docker Compose's
+`v2.7.14` fallback applies
 only to manual Compose commands that do not set `DSP_IMAGE`; the setup script
 exports the detected image before invoking Compose.
 
