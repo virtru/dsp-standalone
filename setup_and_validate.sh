@@ -1344,6 +1344,16 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   export DSP_IMAGE
   log_ok "DSP bundle: $DSP_BUNDLE_RELEASE | platform image: $DSP_IMAGE"
 
+  KEYCLOAK_REALM_EXISTS=false
+  EXISTING_KEYCLOAK_REALM=$(curl -fksSo - --max-time 5 \
+    https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null \
+    | jq -r '.realm // empty' 2>/dev/null || true)
+  if [[ "$EXISTING_KEYCLOAK_REALM" == "opentdf" ]]; then
+    KEYCLOAK_REALM_EXISTS=true
+    log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
+  fi
+  export KEYCLOAK_REALM_EXISTS
+
   log_section "Starting Docker Compose stack"
 
   # On Linux, strip the 'sharepoint' block from dsp.yaml before the build —
