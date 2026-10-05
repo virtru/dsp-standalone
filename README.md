@@ -193,25 +193,38 @@ After the automated setup has created keys, staged configuration, loaded the
 DSP image, and built the local images:
 
 ```bash
-docker compose up -d
+KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
 On macOS, include the checked-in health-check override when starting directly:
 
 ```bash
-docker compose \
+KEYCLOAK_REALM_EXISTS=true docker compose \
   -f docker-compose.yaml \
   -f docker-compose.mac.yml \
   up -d
 ```
 
-### Stop
+These direct Compose commands assume the existing database containers still
+contain the realm and policy from setup. The environment flag prevents the
+one-shot provisioner from rerunning against existing users. After `down`, run
+the full setup command to provision the new database containers.
+
+### Stop without reinitializing
+
+```bash
+docker compose stop
+```
+
+The PostgreSQL services use anonymous volumes. `docker compose down` removes
+their containers, and a later `up` creates new database volumes. To remove the
+stack and reinitialize it on the next setup run:
 
 ```bash
 docker compose down
 ```
 
-To stop the stack and delete both local database volumes:
+To remove the stack and delete its current anonymous database volumes:
 
 ```bash
 docker compose down -v
@@ -241,7 +254,7 @@ BUNDLE_DIR=/path/from/setup-log
 DSP_VERSION=$("$BUNDLE_DIR/dsp" version | awk '$1 == "Version:" { print $2; exit }')
 export DSP_IMAGE="localhost:5000/virtru/data-security-platform:v${DSP_VERSION#v}"
 docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
-docker compose up -d
+KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
 ## Services and endpoints

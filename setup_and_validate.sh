@@ -339,6 +339,11 @@ validate_tools() {
     die "Fix the above then re-run with --skip-prereqs to skip tool installation."
   fi
 
+  docker compose version &>/dev/null || die "Docker Compose is required to start the stack."
+  if [[ "$NO_BUILD" != true ]]; then
+    docker buildx version &>/dev/null || die "Docker Buildx is required to build the DSP images."
+  fi
+
   # Docker daemon check — warn only, do not die
   # On Linux the docker group change requires a new login session; the binary
   # may be installed but the daemon unreachable until the user re-logs in.
@@ -905,6 +910,9 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
     echo
     if [[ $PREREQS_EXIT -ne 0 ]]; then
+      if [[ "$OS" == "darwin" ]]; then
+        die "macOS prerequisites failed (exit $PREREQS_EXIT). Install the missing setup tool, then rerun."
+      fi
       log_warn "Prerequisites script exited with code $PREREQS_EXIT — some tools may not have installed correctly."
       log_warn "Continuing to container setup. Re-run with --skip-prereqs if tools are already installed."
     else
