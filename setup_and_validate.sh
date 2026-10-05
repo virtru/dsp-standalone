@@ -517,20 +517,12 @@ provision_company_namespace() {
 
 resolve_tagging_pdp_workflow_source() {
   local bundle_dir="${1:-}"
-  local default_bundle_dir="$SCRIPT_DIR/virtru-dsp-bundle"
   local candidate=""
   local prompt_path=""
 
   if [[ -n "$bundle_dir" && -f "$bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
     candidate="$bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
     log_info "Using tagging PDP workflow from bundle: $candidate"
-    TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
-    return 0
-  fi
-
-  if [[ -f "$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml" ]]; then
-    candidate="$default_bundle_dir/kubernetes/tagging-pdp-workflows.yaml"
-    log_info "Using tagging PDP workflow from unpacked bundle: $candidate"
     TAGGING_PDP_WORKFLOW_SOURCE="$candidate"
     return 0
   fi
