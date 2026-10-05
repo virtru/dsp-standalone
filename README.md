@@ -75,8 +75,9 @@ If you omit `--bundle`, setup uses `./virtru-dsp-bundle` when that directory
 exists. Otherwise it prompts for a bundle path in an interactive terminal. In
 non-interactive runs, pass `--bundle` explicitly.
 
-The unpacked bundle is reused on later runs. Passing the same archive again
-does not re-extract it when the cached CLI passes the version check.
+The unpacked bundle is reused on later runs. Setup keys the cache by the
+archive's SHA-256 checksum, so replacing an archive under the same filename
+creates a new unpacked directory instead of reusing stale files.
 
 ### 3. Complete first-time Linux setup
 
@@ -220,10 +221,10 @@ docker compose logs dsp-provision-federal-policy
 ### Rebuild explicitly
 
 For a manual rebuild, use the version reported by the selected bundle's CLI.
-`BUNDLE_DIR` is the unpacked path printed by setup:
+Set `BUNDLE_DIR` to the unpacked path in setup's "Using DSP bundle" log line:
 
 ```bash
-export BUNDLE_DIR=/path/to/unpacked/virtru-dsp-bundle
+BUNDLE_DIR=/path/from/setup-log
 DSP_VERSION=$("$BUNDLE_DIR/dsp" version | awk '$1 == "Version:" { print $2; exit }')
 export DSP_IMAGE="localhost:5000/virtru/data-security-platform:v${DSP_VERSION#v}"
 docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
@@ -470,9 +471,10 @@ If that does not work, log out and back in. Then rerun setup with
 
 ### Bundle or image version mismatch
 
-Use the unpacked bundle path printed by setup to inspect its CLI:
+Use the unpacked path in setup's "Using DSP bundle" log line to inspect its CLI:
 
 ```bash
+BUNDLE_DIR=/path/from/setup-log
 "$BUNDLE_DIR/dsp" version
 ```
 

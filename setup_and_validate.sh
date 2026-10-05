@@ -45,9 +45,9 @@ Options:
   -h, --help                Show this help
 
 Examples:
-  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-<release>.tar.gz
-  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-<release>.tar.gz
-  ./setup_and_validate.sh --validate-only --bundle .generated/virtru-dsp-bundle-<release>
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz
+  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz
+  ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
 }
 
@@ -722,7 +722,9 @@ set_bundle_release_from_path() {
 
   bundle_name="$(basename "$bundle_path")"
   bundle_name="${bundle_name%.tar.gz}"
-  if [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)$ ]]; then
+  if [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
+  elif [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)$ ]]; then
     DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
   else
     DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
@@ -743,11 +745,19 @@ registry_has_dsp_tag() {
 
 unpack_bundle_archive() {
   local bundle_tar="$1"
-  local bundle_name bundle_dir unsafe_member
+  local bundle_name bundle_dir bundle_hash unsafe_member
 
   bundle_name="$(basename "$bundle_tar")"
   bundle_name="${bundle_name%.tar.gz}"
-  bundle_dir="$GENERATED_DIR/$bundle_name"
+  if command -v shasum >/dev/null 2>&1; then
+    bundle_hash=$(shasum -a 256 "$bundle_tar" | awk '{ print $1 }') || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    bundle_hash=$(sha256sum "$bundle_tar" | awk '{ print $1 }') || return 1
+  else
+    log_fail "A SHA-256 tool is required to verify the bundle archive cache"
+    return 1
+  fi
+  bundle_dir="$GENERATED_DIR/$bundle_name-$bundle_hash"
 
   if [[ -d "$bundle_dir" ]] && ensure_bundle_directory_ready "$bundle_dir"; then
     log_ok "Reusing unpacked DSP bundle: $bundle_dir"
@@ -821,7 +831,7 @@ select_bundle() {
   fi
 
   if [[ ! -t 0 ]]; then
-    die "A DSP bundle is required. Pass --bundle /path/to/virtru-dsp-bundle-<release>.tar.gz (or an unpacked bundle directory)."
+    die "A DSP bundle is required. Pass --bundle /path/to/bundle.tar.gz (or an unpacked bundle directory)."
   fi
 
   echo

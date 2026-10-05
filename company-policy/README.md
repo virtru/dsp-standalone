@@ -10,15 +10,17 @@ From `dsp-standalone/`, provision the namespace, users, tagging overlay, and
 validation tests through the main setup script:
 
 ```bash
+export BUNDLE=/path/to/virtru-dsp-bundle-2.0.7.tar.gz
+
 # New stack
 ./setup_and_validate.sh \
-  --bundle /path/to/virtru-dsp-bundle-2.0.7.tar.gz \
+  --bundle "$BUNDLE" \
   --add-namespace company
 
 # Already-running stack
 ./setup_and_validate.sh \
   --validate-only \
-  --bundle .generated/virtru-dsp-bundle-2.0.7 \
+  --bundle "$BUNDLE" \
   --add-namespace company
 ```
 
@@ -91,7 +93,7 @@ experimenting:
 ./company-policy/create_company_policy.sh
 
 # Or select it explicitly
-TRUCTL=.generated/virtru-dsp-bundle-2.0.7/tructl \
+TRUCTL=/path/from/setup-log/tructl \
   ./company-policy/create_company_policy.sh
 ```
 
