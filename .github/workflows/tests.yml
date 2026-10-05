@@ -19,7 +19,10 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Check shell syntax
-        run: bash -n ./*.sh tests/*.sh
+        run: |
+          for script in ./*.sh tests/*.sh; do
+            bash -n "$script"
+          done
       - name: Run shell tests
         run: |
           for test_script in tests/test_*.sh; do
