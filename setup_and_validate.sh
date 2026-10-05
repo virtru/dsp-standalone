@@ -428,20 +428,20 @@ get_keycloak_admin_token() {
 keycloak_sample_is_present() {
   local admin_token clients users roles groups expected
   admin_token="$(get_keycloak_admin_token)"
-  [[ -n "$admin_token" ]] || return 1
+  [[ -n "$admin_token" ]] || return 2
 
   clients="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
     'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/clients?max=200' \
-    | jq -r '.[].clientId // empty')" || return 1
+    | jq -er 'if type == "array" then [.[].clientId // empty] | join("\n") else error("invalid clients response") end')" || return 2
   users="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
     'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/users?max=200' \
-    | jq -r '.[].username // empty')" || return 1
+    | jq -er 'if type == "array" then [.[].username // empty] | join("\n") else error("invalid users response") end')" || return 2
   roles="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
     'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/roles' \
-    | jq -r '.[].name // empty')" || return 1
+    | jq -er 'if type == "array" then [.[].name // empty] | join("\n") else error("invalid roles response") end')" || return 2
   groups="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
     'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/groups?max=200' \
-    | jq -r '.[].name // empty')" || return 1
+    | jq -er 'if type == "array" then [.[].name // empty] | join("\n") else error("invalid groups response") end')" || return 2
 
   # These are the resources created by sample.keycloak.yaml. A realm can be
   # visible before its one-shot importer has finished creating them.
@@ -1446,11 +1446,18 @@ open('dsp.yaml', 'w').write(content)
       https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null); then
       case "$REALM_HTTP_STATUS" in
         200)
-          keycloak_sample_is_present || die "Keycloak realm exists but sample clients, users, roles, or group are missing. Inspect provisioning logs and restore the missing resources before retrying, or back up and reset the local database."
-          KEYCLOAK_REALM_EXISTS=true
-          REALM_PROBE_RESOLVED=true
-          log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
-          break
+          if keycloak_sample_is_present; then
+            KEYCLOAK_REALM_EXISTS=true
+            REALM_PROBE_RESOLVED=true
+            log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
+            break
+          else
+            SAMPLE_STATUS=$?
+            if [[ "$SAMPLE_STATUS" == 1 ]]; then
+              die "Keycloak realm exists but sample clients, users, roles, or group are missing. Inspect provisioning logs and restore the missing resources before retrying, or back up and reset the local database."
+            fi
+            log_warn "Keycloak admin API is unavailable; retrying sample inventory (${i}/12)"
+          fi
           ;;
         404)
           REALM_PROBE_RESOLVED=true
@@ -1461,7 +1468,7 @@ open('dsp.yaml', 'w').write(content)
     fi
     sleep 5
   done
-  [[ "$REALM_PROBE_RESOLVED" == true ]] || die "Could not determine whether the Keycloak realm exists. Check: docker compose logs keycloak"
+  [[ "$REALM_PROBE_RESOLVED" == true ]] || die "Could not verify the Keycloak realm and sample resources. Check: docker compose logs keycloak"
   export KEYCLOAK_REALM_EXISTS
 
   # A newly created realm has new signing keys. Stop an existing DSP process so
@@ -1470,11 +1477,15 @@ open('dsp.yaml', 'w').write(content)
     docker compose stop dsp-provision-federal-policy dsp
   fi
 
-  log_info "Running: docker compose up -d"
-  if ! docker compose up -d; then
+  COMPOSE_UP_ARGS=(-d)
+  if [[ "$NO_BUILD" == true ]]; then
+    COMPOSE_UP_ARGS+=(--no-build)
+  fi
+  log_info "Running: docker compose up ${COMPOSE_UP_ARGS[*]}"
+  if ! docker compose up "${COMPOSE_UP_ARGS[@]}"; then
     log_warn "Compose did not settle on the first start; retrying once after services recover"
     sleep 5
-    docker compose up -d || die "Compose failed to start the DSP stack. Check: docker compose ps -a; docker compose logs dsp"
+    docker compose up "${COMPOSE_UP_ARGS[@]}" || die "Compose failed to start the DSP stack. Check: docker compose ps -a; docker compose logs dsp"
   fi
 
   log_ok "Stack started in detached mode"
@@ -1653,6 +1664,28 @@ else
   check_fail "Skipping attribute check (no token)"
   ERRORS+=("Attribute check skipped — no token")
 fi
+
+# Compare every federal value and mapping from the selected bundle with DSP.
+# The provisioner cannot safely retry a namespace that was only partly imported.
+log_info "Check 5b: Complete federal sample policy"
+POLICY_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dsp-policy.XXXXXX")
+policy_dump() {
+  docker compose exec -T dsp /usr/bin/dsp tructl policy "$1" list --json \
+    --with-client-creds '{"clientId":"opentdf","clientSecret":"secret"}' \
+    --host https://local-dsp.virtru.com:8080
+}
+if policy_dump attributes >"$POLICY_TMP_DIR/attributes.json" \
+  && policy_dump subject-mappings >"$POLICY_TMP_DIR/subjects.json" \
+  && policy_dump resource-mappings >"$POLICY_TMP_DIR/resources.json" \
+  && bash "$SCRIPT_DIR/validate_federal_policy.sh" "$SCRIPT_DIR/sample.federal_policy.yaml" \
+    "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"; then
+  check_pass "Federal sample values and mappings are present"
+else
+  check_fail "Federal sample policy is incomplete or unavailable"
+  ERRORS+=("Federal sample policy is incomplete; inspect provisioning logs and restore missing objects, or back up and reset the local database")
+fi
+rm -f "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"
+rmdir "$POLICY_TMP_DIR"
 
 # --- 6. Database connectivity -----------------------------------------------
 log_info "Check 6: Database connectivity"

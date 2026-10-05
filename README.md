@@ -283,6 +283,18 @@ docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
 KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
+On macOS, use the override for both Compose commands instead:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.mac.yml \
+  build --build-arg "DSP_IMAGE=$DSP_IMAGE"
+KEYCLOAK_REALM_EXISTS=true docker compose -f docker-compose.yaml \
+  -f docker-compose.mac.yml up -d
+```
+
+After a manual start, run `./setup_and_validate.sh --validate-only --bundle "$BUNDLE_DIR"`
+to check the complete federal sample policy and the rest of the stack.
+
 ## Services and endpoints
 
 | Service | Host endpoint or port | Purpose |
