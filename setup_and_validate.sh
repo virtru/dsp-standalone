@@ -425,23 +425,31 @@ get_keycloak_admin_token() {
     2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true
 }
 
+keycloak_collection_names() {
+  local admin_token="$1" endpoint="$2" field="$3"
+  local first=0 page page_count names
+  while true; do
+    page="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+      "https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/$endpoint?first=$first&max=100")" || return 2
+    names="$(jq -er --arg field "$field" \
+      'if type == "array" then [.[].[$field] // empty] | join("\n") else error("invalid collection response") end' \
+      <<<"$page")" || return 2
+    page_count="$(jq -er 'length' <<<"$page")" || return 2
+    [[ -z "$names" ]] || printf '%s\n' "$names"
+    (( page_count < 100 )) && break
+    first=$((first + 100))
+  done
+}
+
 keycloak_sample_is_present() {
   local admin_token clients users roles groups expected
   admin_token="$(get_keycloak_admin_token)"
   [[ -n "$admin_token" ]] || return 2
 
-  clients="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
-    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/clients?max=200' \
-    | jq -er 'if type == "array" then [.[].clientId // empty] | join("\n") else error("invalid clients response") end')" || return 2
-  users="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
-    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/users?max=200' \
-    | jq -er 'if type == "array" then [.[].username // empty] | join("\n") else error("invalid users response") end')" || return 2
-  roles="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
-    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/roles' \
-    | jq -er 'if type == "array" then [.[].name // empty] | join("\n") else error("invalid roles response") end')" || return 2
-  groups="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
-    'https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/groups?max=200' \
-    | jq -er 'if type == "array" then [.[].name // empty] | join("\n") else error("invalid groups response") end')" || return 2
+  clients="$(keycloak_collection_names "$admin_token" clients clientId)" || return 2
+  users="$(keycloak_collection_names "$admin_token" users username)" || return 2
+  roles="$(keycloak_collection_names "$admin_token" roles name)" || return 2
+  groups="$(keycloak_collection_names "$admin_token" groups name)" || return 2
 
   # These are the resources created by sample.keycloak.yaml. A realm can be
   # visible before its one-shot importer has finished creating them.
@@ -984,18 +992,18 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   # --- federal policy sample ------------------------------------------------
   log_section "Sample federal policy"
 
-  FEDERAL_SRC="${BUNDLE_DIR:-$SCRIPT_DIR/virtru-dsp-bundle}/samples/defaults/federal.yaml"
   FEDERAL_DST="$SCRIPT_DIR/sample.federal_policy.yaml"
-
-  if [[ -f "$FEDERAL_DST" ]]; then
-    log_ok "sample.federal_policy.yaml already exists — skipping"
-  elif [[ -f "$FEDERAL_SRC" ]]; then
-    cp "$FEDERAL_SRC" "$FEDERAL_DST"
-    log_ok "Copied $FEDERAL_SRC → $FEDERAL_DST"
-  else
-    log_warn "Bundle policy file not found: $FEDERAL_SRC"
-    log_warn "sample.federal_policy.yaml will need to be provided manually before starting the stack."
-  fi
+  sync_federal_policy_sample() {
+    local federal_src="$BUNDLE_DIR/samples/defaults/federal.yaml"
+    [[ -f "$federal_src" ]] || die "Bundle policy file not found: $federal_src"
+    if [[ -f "$FEDERAL_DST" ]] && cmp -s "$federal_src" "$FEDERAL_DST"; then
+      log_ok "sample.federal_policy.yaml matches the selected bundle"
+    else
+      cp "$federal_src" "$FEDERAL_DST"
+      log_ok "Copied $federal_src → $FEDERAL_DST"
+    fi
+  }
+  sync_federal_policy_sample
 
   # --- /etc/hosts -----------------------------------------------------------
   log_section "/etc/hosts"
@@ -1321,10 +1329,7 @@ print('Updated $DAEMON_JSON')
       done
     fi
 
-    if [[ ! -f "$FEDERAL_DST" && -f "$BUNDLE_DIR/samples/defaults/federal.yaml" ]]; then
-      cp "$BUNDLE_DIR/samples/defaults/federal.yaml" "$FEDERAL_DST"
-      log_ok "Copied $BUNDLE_DIR/samples/defaults/federal.yaml → $FEDERAL_DST"
-    fi
+    sync_federal_policy_sample
 
     log_info "Loading DSP images from bundle: $BUNDLE_DIR"
     (cd "$BUNDLE_DIR" && ./dsp copy-images --insecure localhost:5000/virtru)
@@ -1682,7 +1687,7 @@ policy_dump() {
 if policy_dump attributes >"$POLICY_TMP_DIR/attributes.json" \
   && policy_dump subject-mappings >"$POLICY_TMP_DIR/subjects.json" \
   && policy_dump resource-mappings >"$POLICY_TMP_DIR/resources.json" \
-  && bash "$SCRIPT_DIR/validate_federal_policy.sh" "$SCRIPT_DIR/sample.federal_policy.yaml" \
+  && bash "$SCRIPT_DIR/validate_federal_policy.sh" "$BUNDLE_DIR/samples/defaults/federal.yaml" \
     "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"; then
   check_pass "Federal sample values and mappings are present"
 else
