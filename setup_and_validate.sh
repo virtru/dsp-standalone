@@ -1441,7 +1441,7 @@ open('dsp.yaml', 'w').write(content)
 
   KEYCLOAK_REALM_EXISTS=false
   REALM_PROBE_RESOLVED=false
-  for _ in {1..12}; do
+  for i in {1..12}; do
     if REALM_HTTP_STATUS=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time 5 \
       https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null); then
       case "$REALM_HTTP_STATUS" in
@@ -1669,6 +1669,11 @@ fi
 # The provisioner cannot safely retry a namespace that was only partly imported.
 log_info "Check 5b: Complete federal sample policy"
 POLICY_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dsp-policy.XXXXXX")
+cleanup_policy_tmp_dir() {
+  rm -f "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"
+  rmdir "$POLICY_TMP_DIR"
+}
+trap cleanup_policy_tmp_dir EXIT
 policy_dump() {
   docker compose exec -T dsp /usr/bin/dsp tructl policy "$1" list --json \
     --with-client-creds '{"clientId":"opentdf","clientSecret":"secret"}' \
@@ -1684,8 +1689,8 @@ else
   check_fail "Federal sample policy is incomplete or unavailable"
   ERRORS+=("Federal sample policy is incomplete; inspect provisioning logs and restore missing objects, or back up and reset the local database")
 fi
-rm -f "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"
-rmdir "$POLICY_TMP_DIR"
+cleanup_policy_tmp_dir
+trap - EXIT
 
 # --- 6. Database connectivity -----------------------------------------------
 log_info "Check 6: Database connectivity"

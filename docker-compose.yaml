@@ -231,12 +231,15 @@ services:
           echo 'Could not determine whether the federal namespace exists' >&2
           exit 1
         fi
-        case "$$namespaces" in
-          *'"name": "demo.com"'*)
-            echo 'Federal namespace exists; setup will validate sample policy objects'
-            exit 0
-            ;;
-        esac
+        if ! namespace_names=$$(printf '%s' "$$namespaces" | jq -e \
+          'if type == "array" then [.[].name] else error("invalid namespace list") end'); then
+          echo 'Could not parse the federal namespace list' >&2
+          exit 1
+        fi
+        if printf '%s' "$$namespace_names" | jq -e 'index("demo.com") != null' >/dev/null; then
+          echo 'Federal namespace exists; setup will validate sample policy objects'
+          exit 0
+        fi
         /usr/bin/dsp tructl provision policy -f ./samples/defaults/federal_policy.yaml --with-client-creds "$$creds" --host "$$host"
     network_mode: host
     restart: on-failure

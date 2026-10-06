@@ -52,11 +52,11 @@ RUN test -f /work/samples/defaults/keycloak_data.yaml \
 # hadolint ignore=DL3006
 FROM ${DSP_IMAGE} AS dsp
 
-# Install curl for Docker health checks
+# Install curl for Docker health checks and jq for namespace inspection.
 # Rolling/curated DSP base: pin the image, not apt/apk package versions.
 # hadolint ignore=DL3008,DL3018
-RUN { apt-get update -qq && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*; } 2>/dev/null || \
-    apk add --no-cache curl 2>/dev/null || true
+RUN { apt-get update -qq && apt-get install -y --no-install-recommends curl jq && rm -rf /var/lib/apt/lists/*; } 2>/dev/null || \
+    apk add --no-cache curl jq
 
 # Copy only what’s needed; avoid copying the entire prep filesystem.
 COPY --from=prep /work/dsp-keys/           /dsp-keys/

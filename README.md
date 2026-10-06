@@ -283,6 +283,15 @@ docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
 KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
+On macOS, pass both Compose files to the build and start commands:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.mac.yml \
+  build --build-arg "DSP_IMAGE=$DSP_IMAGE"
+KEYCLOAK_REALM_EXISTS=true docker compose \
+  -f docker-compose.yaml -f docker-compose.mac.yml up -d
+```
+
 On macOS, use the override for both Compose commands instead:
 
 ```bash
