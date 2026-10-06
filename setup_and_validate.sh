@@ -1227,13 +1227,15 @@ print('Updated $DAEMON_JSON')
     fi
   fi
 
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
-    if curl -fsSL --max-time 3 http://localhost:5000/v2/ &>/dev/null; then
-      log_ok "Registry container already running"
-    else
-      log_warn "Registry container is running but port 5000 is unreachable — restarting it..."
-      docker restart registry
-    fi
+  # The registry may belong to another Docker context (for example OrbStack
+  # while Docker Desktop is selected). Reuse a healthy endpoint before trying
+  # to start a container that would collide with its host port.
+  REGISTRY_V2=$(curl -fsSL --max-time 3 http://localhost:5000/v2/ 2>/dev/null || true)
+  if [[ "$REGISTRY_V2" == "{}" ]]; then
+    log_ok "Docker registry already responding on port 5000"
+  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
+    log_warn "Registry container is running but port 5000 is unreachable — restarting it..."
+    docker restart registry
   elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
     log_info "Starting existing registry container..."
     docker start registry
