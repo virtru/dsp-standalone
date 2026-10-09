@@ -339,6 +339,11 @@ validate_tools() {
     die "Fix the above then re-run with --skip-prereqs to skip tool installation."
   fi
 
+  docker compose version &>/dev/null || die "Docker Compose is required to start the stack."
+  if [[ "$NO_BUILD" != true ]]; then
+    docker buildx version &>/dev/null || die "Docker Buildx is required to build the DSP images."
+  fi
+
   # Docker daemon check — warn only, do not die
   # On Linux the docker group change requires a new login session; the binary
   # may be installed but the daemon unreachable until the user re-logs in.
@@ -418,6 +423,48 @@ get_keycloak_admin_token() {
     -d "grant_type=password&client_id=admin-cli&username=admin&password=changeme" \
     https://local-dsp.virtru.com:18443/auth/realms/master/protocol/openid-connect/token \
     2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true
+}
+
+keycloak_collection_names() {
+  local admin_token="$1" endpoint="$2" field="$3"
+  local first=0 page page_count names
+  while true; do
+    page="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
+      "https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/$endpoint?first=$first&max=100")" || return 2
+    names="$(jq -er --arg field "$field" \
+      'if type == "array" then [.[][$field] // empty] | join("\n") else error("invalid collection response") end' \
+      <<<"$page")" || return 2
+    page_count="$(jq -er 'length' <<<"$page")" || return 2
+    [[ -z "$names" ]] || printf '%s\n' "$names"
+    (( page_count < 100 )) && break
+    first=$((first + 100))
+  done
+}
+
+keycloak_sample_is_present() {
+  local admin_token clients users roles groups expected
+  admin_token="$(get_keycloak_admin_token)"
+  [[ -n "$admin_token" ]] || return 2
+
+  clients="$(keycloak_collection_names "$admin_token" clients clientId)" || return 2
+  users="$(keycloak_collection_names "$admin_token" users username)" || return 2
+  roles="$(keycloak_collection_names "$admin_token" roles name)" || return 2
+  groups="$(keycloak_collection_names "$admin_token" groups name)" || return 2
+
+  # These are the resources created by sample.keycloak.yaml. A realm can be
+  # visible before its one-shot importer has finished creating them.
+  for expected in secure-object-proxy secure-object-proxy-test opentdf opentdf-sdk \
+    opentdf-public tdf-entity-resolution tdf-authorization-svc dsp-cop-client; do
+    grep -qx "$expected" <<<"$clients" || return 1
+  done
+  for expected in secret-usa-aaa top-secret-gbr-bbb classified-fra-int \
+    unclassified-mex-user top-secret-usa-aaa eng-user hr-user accounting-user sales-user; do
+    grep -qx "$expected" <<<"$users" || return 1
+  done
+  for expected in opentdf-org-admin opentdf-admin opentdf-standard; do
+    grep -qx "$expected" <<<"$roles" || return 1
+  done
+  grep -qx mygroup <<<"$groups"
 }
 
 list_policy_attribute_pairs() {
@@ -897,14 +944,25 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
       chmod +x "$PREREQS_SCRIPT"
     fi
 
-    log_info "Executing: $PREREQS_SCRIPT"
+    PREREQS_OPTION=""
+    if [[ "$NO_BUILD" == true ]]; then
+      PREREQS_OPTION="--no-build"
+    fi
+    log_info "Executing: $PREREQS_SCRIPT $PREREQS_OPTION"
     echo
 
     PREREQS_EXIT=0
-    bash "$PREREQS_SCRIPT" || PREREQS_EXIT=$?
+    if [[ -n "$PREREQS_OPTION" ]]; then
+      bash "$PREREQS_SCRIPT" "$PREREQS_OPTION" || PREREQS_EXIT=$?
+    else
+      bash "$PREREQS_SCRIPT" || PREREQS_EXIT=$?
+    fi
 
     echo
     if [[ $PREREQS_EXIT -ne 0 ]]; then
+      if [[ "$OS" == "darwin" ]]; then
+        die "macOS prerequisites failed (exit $PREREQS_EXIT). Install the missing setup tool, then rerun."
+      fi
       log_warn "Prerequisites script exited with code $PREREQS_EXIT — some tools may not have installed correctly."
       log_warn "Continuing to container setup. Re-run with --skip-prereqs if tools are already installed."
     else
@@ -934,18 +992,24 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   # --- federal policy sample ------------------------------------------------
   log_section "Sample federal policy"
 
-  FEDERAL_SRC="${BUNDLE_DIR:-$SCRIPT_DIR/virtru-dsp-bundle}/samples/defaults/federal.yaml"
   FEDERAL_DST="$SCRIPT_DIR/sample.federal_policy.yaml"
-
-  if [[ -f "$FEDERAL_DST" ]]; then
-    log_ok "sample.federal_policy.yaml already exists — skipping"
-  elif [[ -f "$FEDERAL_SRC" ]]; then
-    cp "$FEDERAL_SRC" "$FEDERAL_DST"
-    log_ok "Copied $FEDERAL_SRC → $FEDERAL_DST"
-  else
-    log_warn "Bundle policy file not found: $FEDERAL_SRC"
-    log_warn "sample.federal_policy.yaml will need to be provided manually before starting the stack."
-  fi
+  sync_federal_policy_sample() {
+    local federal_src="$BUNDLE_DIR/samples/defaults/federal.yaml"
+    [[ -f "$federal_src" ]] || die "Bundle policy file not found: $federal_src"
+    if [[ ! -f "$FEDERAL_DST" ]]; then
+      cp "$federal_src" "$FEDERAL_DST"
+      log_ok "Copied $federal_src → $FEDERAL_DST"
+    elif cmp -s "$federal_src" "$FEDERAL_DST"; then
+      log_ok "sample.federal_policy.yaml matches the selected bundle"
+    else
+      log_warn "sample.federal_policy.yaml differs from the selected bundle; keeping local edits"
+      log_warn "Delete the local copy and rerun setup to use the bundle's policy"
+      if [[ "$NO_BUILD" == true ]]; then
+        log_warn "--no-build reuses an image that does not contain these local edits"
+      fi
+    fi
+  }
+  sync_federal_policy_sample
 
   # --- /etc/hosts -----------------------------------------------------------
   log_section "/etc/hosts"
@@ -1169,8 +1233,19 @@ print('Updated $DAEMON_JSON')
     fi
   fi
 
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
-    log_ok "Registry container already running"
+  # The registry may belong to another Docker context (for example OrbStack
+  # while Docker Desktop is selected). Reuse a healthy endpoint before trying
+  # to start a container that would collide with its host port.
+  REGISTRY_V2=$(curl -fsSL --max-time 3 http://localhost:5000/v2/ 2>/dev/null || true)
+  if [[ "$REGISTRY_V2" == "{}" ]]; then
+    if [[ "$OS" == "darwin" && "$NO_BUILD" != true ]] \
+      && [[ -z "$(docker ps -q --filter publish=5000)" ]]; then
+      die "Port 5000 is served by a registry outside Docker context '$(docker context show)'.\nThe selected Docker daemon cannot use that host port to pull the DSP base image.\nSwitch to the runtime that owns the registry or stop it, then rerun setup."
+    fi
+    log_ok "Docker registry already responding on port 5000"
+  elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
+    log_warn "Registry container is running but port 5000 is unreachable — restarting it..."
+    docker restart registry
   elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
     log_info "Starting existing registry container..."
     docker start registry
@@ -1266,10 +1341,7 @@ print('Updated $DAEMON_JSON')
       done
     fi
 
-    if [[ ! -f "$FEDERAL_DST" && -f "$BUNDLE_DIR/samples/defaults/federal.yaml" ]]; then
-      cp "$BUNDLE_DIR/samples/defaults/federal.yaml" "$FEDERAL_DST"
-      log_ok "Copied $BUNDLE_DIR/samples/defaults/federal.yaml → $FEDERAL_DST"
-    fi
+    sync_federal_policy_sample
 
     log_info "Loading DSP images from bundle: $BUNDLE_DIR"
     (cd "$BUNDLE_DIR" && ./dsp copy-images --insecure localhost:5000/virtru)
@@ -1343,10 +1415,14 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
 
   # On Linux, strip the 'sharepoint' block from dsp.yaml before the build —
   # this DSP version does not recognise 'encryptedSearchKeyPath' and refuses
-  # to start with a config validation error. The host file is restored after
-  # the build so macOS checkouts are unaffected.
-  if [[ "$OS" == "linux" ]]; then
+  # to start with a config validation error. Restore the host file immediately
+  # after building, including when the build exits with an error.
+  if [[ "$OS" == "linux" && "$NO_BUILD" != true ]]; then
+    if [[ -e dsp.yaml.bak || -L dsp.yaml.bak ]]; then
+      die "dsp.yaml.bak already exists; preserve or restore it before retrying"
+    fi
     cp dsp.yaml dsp.yaml.bak
+    trap 'if [[ -f dsp.yaml.bak ]]; then mv dsp.yaml.bak dsp.yaml; fi' EXIT
     python3 -c "
 import re, sys
 content = open('dsp.yaml').read()
@@ -1356,20 +1432,77 @@ open('dsp.yaml', 'w').write(content)
     log_info "dsp.yaml patched for Linux (sharepoint block removed)"
   fi
 
-  if [[ "$NO_BUILD" == true ]]; then
-    log_info "Running: docker compose up -d (--no-build: using cached images)"
-    docker compose up -d
-  else
+  if [[ "$NO_BUILD" != true ]]; then
     log_info "Running: docker compose build --build-arg DSP_IMAGE=${DSP_IMAGE}"
     docker compose build --build-arg "DSP_IMAGE=${DSP_IMAGE}"
-    log_info "Running: docker compose up -d"
-    docker compose up -d
   fi
 
-  # Restore original dsp.yaml now that the image is built
-  if [[ "$OS" == "linux" && -f dsp.yaml.bak ]]; then
+  if [[ "$OS" == "linux" && "$NO_BUILD" != true ]]; then
     mv dsp.yaml.bak dsp.yaml
+    trap - EXIT
     log_info "dsp.yaml restored"
+  fi
+
+  # Query the persisted realm only after Keycloak is healthy. A probe before
+  # starting Compose is stale when the Docker runtime has just been restarted.
+  log_info "Starting Keycloak before checking for an existing realm..."
+  docker compose up -d keycloak-db keycloak
+  KEYCLOAK_CONTAINER=$(docker compose ps -q keycloak)
+  KEYCLOAK_HEALTH=""
+  for _ in {1..36}; do
+    KEYCLOAK_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$KEYCLOAK_CONTAINER" 2>/dev/null || true)
+    [[ "$KEYCLOAK_HEALTH" == "healthy" ]] && break
+    sleep 5
+  done
+  [[ "$KEYCLOAK_HEALTH" == "healthy" ]] || die "Keycloak did not become healthy before provisioning. Check: docker compose logs keycloak"
+
+  KEYCLOAK_REALM_EXISTS=false
+  REALM_PROBE_RESOLVED=false
+  for i in {1..12}; do
+    if REALM_HTTP_STATUS=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time 5 \
+      https://local-dsp.virtru.com:18443/auth/realms/opentdf 2>/dev/null); then
+      case "$REALM_HTTP_STATUS" in
+        200)
+          if keycloak_sample_is_present; then
+            KEYCLOAK_REALM_EXISTS=true
+            REALM_PROBE_RESOLVED=true
+            log_info "Existing Keycloak realm detected; repeat provisioning will be skipped"
+            break
+          else
+            SAMPLE_STATUS=$?
+            if [[ "$SAMPLE_STATUS" == 1 ]]; then
+              die "Keycloak realm exists but sample clients, users, roles, or group are missing. Inspect provisioning logs and restore the missing resources before retrying, or back up and reset the local database."
+            fi
+            log_warn "Keycloak admin API is unavailable; retrying sample inventory (${i}/12)"
+          fi
+          ;;
+        404)
+          REALM_PROBE_RESOLVED=true
+          log_info "Keycloak realm is absent; provisioning will run"
+          break
+          ;;
+      esac
+    fi
+    sleep 5
+  done
+  [[ "$REALM_PROBE_RESOLVED" == true ]] || die "Could not verify the Keycloak realm and sample resources. Check: docker compose logs keycloak"
+  export KEYCLOAK_REALM_EXISTS
+
+  # A newly created realm has new signing keys. Stop an existing DSP process so
+  # it starts after provisioning and does not keep the previous realm's JWKS.
+  if [[ "$KEYCLOAK_REALM_EXISTS" == false ]]; then
+    docker compose stop dsp-provision-federal-policy dsp
+  fi
+
+  COMPOSE_UP_ARGS=(-d)
+  if [[ "$NO_BUILD" == true ]]; then
+    COMPOSE_UP_ARGS+=(--no-build)
+  fi
+  log_info "Running: docker compose up ${COMPOSE_UP_ARGS[*]}"
+  if ! docker compose up "${COMPOSE_UP_ARGS[@]}"; then
+    log_warn "Compose did not settle on the first start; retrying once after services recover"
+    sleep 5
+    docker compose up "${COMPOSE_UP_ARGS[@]}" || die "Compose failed to start the DSP stack. Check: docker compose ps -a; docker compose logs dsp"
   fi
 
   log_ok "Stack started in detached mode"
@@ -1549,6 +1682,33 @@ else
   ERRORS+=("Attribute check skipped — no token")
 fi
 
+# Compare every federal value and mapping from the selected bundle with DSP.
+# The provisioner cannot safely retry a namespace that was only partly imported.
+log_info "Check 5b: Complete federal sample policy"
+POLICY_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dsp-policy.XXXXXX")
+cleanup_policy_tmp_dir() {
+  rm -f "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"
+  rmdir "$POLICY_TMP_DIR"
+}
+trap cleanup_policy_tmp_dir EXIT
+policy_dump() {
+  docker compose exec -T dsp /usr/bin/dsp tructl policy "$1" list --json \
+    --with-client-creds '{"clientId":"opentdf","clientSecret":"secret"}' \
+    --host https://local-dsp.virtru.com:8080
+}
+if policy_dump attributes >"$POLICY_TMP_DIR/attributes.json" \
+  && policy_dump subject-mappings >"$POLICY_TMP_DIR/subjects.json" \
+  && policy_dump resource-mappings >"$POLICY_TMP_DIR/resources.json" \
+  && bash "$SCRIPT_DIR/validate_federal_policy.sh" "$BUNDLE_DIR/samples/defaults/federal.yaml" \
+    "$POLICY_TMP_DIR/attributes.json" "$POLICY_TMP_DIR/subjects.json" "$POLICY_TMP_DIR/resources.json"; then
+  check_pass "Federal sample values and mappings are present"
+else
+  check_fail "Federal sample policy is incomplete or unavailable"
+  ERRORS+=("Federal sample policy is incomplete; inspect provisioning logs and restore missing objects, or back up and reset the local database")
+fi
+cleanup_policy_tmp_dir
+trap - EXIT
+
 # --- 6. Database connectivity -----------------------------------------------
 log_info "Check 6: Database connectivity"
 
@@ -1561,8 +1721,9 @@ else
   ERRORS+=("DSP policy schema empty or missing")
 fi
 
-KC_TABLES=$(docker exec virtru-dsp-only-keycloak-db-1 psql -U postgres -d keycloak -c "\dt *" 2>/dev/null | grep -c "row" || echo "0")
-if [[ "$KC_TABLES" -gt 0 ]]; then
+KC_TABLES=$(docker exec virtru-dsp-only-keycloak-db-1 psql -U postgres -d keycloak -tAc \
+  "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null || true)
+if [[ "$KC_TABLES" =~ ^[0-9]+$ ]] && (( KC_TABLES > 0 )); then
   check_pass "Keycloak DB has tables"
 else
   check_fail "No tables found in Keycloak DB"

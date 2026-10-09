@@ -66,10 +66,40 @@ export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
 ./setup_and_validate.sh --bundle "$BUNDLE"
 ```
 
+On Apple M4 with Colima, if Keycloak exits with SIGILL/code 134, try the
+[OpenTDF SVE workaround](https://opentdf.io/getting-started) for that run:
+
+```bash
+JAVA_TOOL_OPTIONS='-XX:+IgnoreUnrecognizedVMOptions -XX:UseSVE=0' \
+  ./setup_and_validate.sh --bundle "$BUNDLE"
+```
+
+The macOS Compose override passes this setting to Keycloak's JVM and Java
+health check. Leave it unset when Keycloak starts normally.
+
+Existing stacks started with `KC_DB_VENDOR` stored Keycloak data in the
+container's H2 database. The corrected `KC_DB` setting starts with the
+PostgreSQL database and setup provisions a new sample realm there. Manually
+created users or realm changes in H2 are not migrated; back up that container's
+`/opt/keycloak/data/h2` directory before upgrading if you need them.
+
 The command installs or verifies prerequisites, safely unpacks the bundle under
 `.generated/`, creates local keys, loads the detected DSP image, starts the
 stack, provisions the sample federal policy, and runs infrastructure, tagging,
 and Go SDK tests.
+
+### What the host needs
+
+| Phase | Requirements |
+|---|---|
+| Run an already prepared stack | A running Docker engine with Compose and host networking; the built DSP image, Keycloak and PostgreSQL images, generated certificates/keys, config files, and `local-dsp.virtru.com` resolving to `127.0.0.1`. |
+| First setup or rebuild | The DSP bundle, Docker Buildx, a reachable local registry on port 5000, `curl`, `jq`, `mkcert`, `openssl`, and `cosign`. macOS also uses `shasum`, `tar`, and `gzip` from the system to unpack the archive; Linux uses `python3` to prepare its DSP config. |
+| Default SDK validation | Go and access to its module dependencies. Go is not used by the running containers. |
+
+The `mkcert` and `cosign` executables generate the certificate and signing keys;
+the containers use the resulting files. The registry serves the bundle image
+during setup and builds. Homebrew is only needed to install a missing host tool.
+Node.js, nvm, wget, git, and make are not required by this stack on macOS.
 
 If you omit `--bundle`, setup uses `./virtru-dsp-bundle` when that directory
 exists. Otherwise it prompts for a bundle path in an interactive terminal. In
@@ -180,25 +210,38 @@ After the automated setup has created keys, staged configuration, loaded the
 DSP image, and built the local images:
 
 ```bash
-docker compose up -d
+KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
 
 On macOS, include the checked-in health-check override when starting directly:
 
 ```bash
-docker compose \
+KEYCLOAK_REALM_EXISTS=true docker compose \
   -f docker-compose.yaml \
   -f docker-compose.mac.yml \
   up -d
 ```
 
-### Stop
+These direct Compose commands assume the existing database containers still
+contain the realm and policy from setup. The environment flag prevents the
+one-shot provisioner from rerunning against existing users. After `down`, run
+the full setup command to provision the new database containers.
+
+### Stop without reinitializing
+
+```bash
+docker compose stop
+```
+
+The PostgreSQL services use anonymous volumes. `docker compose down` removes
+their containers, and a later `up` creates new database volumes. To remove the
+stack and reinitialize it on the next setup run:
 
 ```bash
 docker compose down
 ```
 
-To stop the stack and delete both local database volumes:
+To remove the stack and delete its current anonymous database volumes:
 
 ```bash
 docker compose down -v
@@ -228,8 +271,20 @@ BUNDLE_DIR=/path/from/setup-log
 DSP_VERSION=$("$BUNDLE_DIR/dsp" version | awk '$1 == "Version:" { print $2; exit }')
 export DSP_IMAGE="localhost:5000/virtru/data-security-platform:v${DSP_VERSION#v}"
 docker compose build --build-arg "DSP_IMAGE=$DSP_IMAGE"
-docker compose up -d
+KEYCLOAK_REALM_EXISTS=true docker compose up -d
 ```
+
+On macOS, pass both Compose files to the build and start commands:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.mac.yml \
+  build --build-arg "DSP_IMAGE=$DSP_IMAGE"
+KEYCLOAK_REALM_EXISTS=true docker compose \
+  -f docker-compose.yaml -f docker-compose.mac.yml up -d
+```
+
+After a manual start, run `./setup_and_validate.sh --validate-only --bundle "$BUNDLE_DIR"`
+to check the complete federal sample policy and the rest of the stack.
 
 ## Services and endpoints
 
@@ -392,8 +447,15 @@ entry:
 
 ```bash
 python3 add_user.py
-docker compose run --rm dsp-keycloak-provisioning
 ```
+
+The helper updates `sample.keycloak.yaml` for the next clean setup. The bundled
+Keycloak importer creates the whole sample realm and must not be rerun against
+an existing realm. To add the user to a running stack without resetting it,
+create the user in the [Keycloak admin console](https://local-dsp.virtru.com:18443/auth/admin)
+with the password, attributes, realm role, and optional group shown by the
+helper. To apply the edited YAML through the importer, back up any local data,
+run `docker compose down -v`, then run the full setup again.
 
 The important user claims are `clearance`, `needToKnow`, and `nationality`.
 They must match the subject condition sets in the generated
@@ -444,6 +506,9 @@ docker compose down -v
 
 For non-destructive updates, use the `tructl policy` update commands supplied
 by the same bundle rather than rerunning the create-only sample provisioner.
+The exact policy validator also checks counts from bundle 2.0.6.7; review
+those counts when changing `DEFAULT_DSP_BUNDLE_RELEASE` and update them if the
+sample layout changes.
 
 ### Configuration reference
 

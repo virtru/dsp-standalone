@@ -52,11 +52,8 @@ RUN test -f /work/samples/defaults/keycloak_data.yaml \
 # hadolint ignore=DL3006
 FROM ${DSP_IMAGE} AS dsp
 
-# Install curl for Docker health checks
-# Rolling/curated DSP base: pin the image, not apt/apk package versions.
-# hadolint ignore=DL3008,DL3018
-RUN { apt-get update -qq && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*; } 2>/dev/null || \
-    apk add --no-cache curl 2>/dev/null || true
+# The bundled UBI-micro image has no package manager. Health checks use bash
+# when curl is unavailable, and namespace inspection uses bash below.
 
 # Copy only what’s needed; avoid copying the entire prep filesystem.
 COPY --from=prep /work/dsp-keys/           /dsp-keys/
