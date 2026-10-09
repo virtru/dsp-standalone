@@ -447,8 +447,15 @@ entry:
 
 ```bash
 python3 add_user.py
-docker compose run --rm dsp-keycloak-provisioning
 ```
+
+The helper updates `sample.keycloak.yaml` for the next clean setup. The bundled
+Keycloak importer creates the whole sample realm and must not be rerun against
+an existing realm. To add the user to a running stack without resetting it,
+create the user in the [Keycloak admin console](https://local-dsp.virtru.com:18443/auth/admin)
+with the password, attributes, realm role, and optional group shown by the
+helper. To apply the edited YAML through the importer, back up any local data,
+run `docker compose down -v`, then run the full setup again.
 
 The important user claims are `clearance`, `needToKnow`, and `nationality`.
 They must match the subject condition sets in the generated
@@ -499,6 +506,9 @@ docker compose down -v
 
 For non-destructive updates, use the `tructl policy` update commands supplied
 by the same bundle rather than rerunning the create-only sample provisioner.
+The exact policy validator also checks counts from bundle 2.0.6.7; review
+those counts when changing `DEFAULT_DSP_BUNDLE_RELEASE` and update them if the
+sample layout changes.
 
 ### Configuration reference
 

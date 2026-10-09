@@ -132,7 +132,7 @@ services:
         fi
         exec /usr/bin/dsp tructl provision keycloak-from-config -e https://local-dsp.virtru.com:18443/auth
     environment:
-      KEYCLOAK_REALM_EXISTS: ${KEYCLOAK_REALM_EXISTS:-false}
+      KEYCLOAK_REALM_EXISTS: ${KEYCLOAK_REALM_EXISTS:-true}
     network_mode: host
     restart: on-failure
     depends_on:
@@ -214,7 +214,7 @@ services:
     # tructl's policy provisioner cannot import an existing namespace. The
     # setup script checks every expected sample value and mapping after this
     # service exits, including when an existing namespace is skipped.
-    entrypoint: ["/bin/sh", "-ec"]
+    entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
         creds='{"clientId":"opentdf","clientSecret":"secret"}'
@@ -231,12 +231,12 @@ services:
           echo 'Could not determine whether the federal namespace exists' >&2
           exit 1
         fi
-        if ! namespace_names=$$(printf '%s' "$$namespaces" | jq -e \
-          'if type == "array" then [.[].name] else error("invalid namespace list") end'); then
-          echo 'Could not parse the federal namespace list' >&2
+        if [[ "$$namespaces" != *'"pagination"'* ]]; then
+          echo 'Unexpected federal namespace list response' >&2
           exit 1
         fi
-        if printf '%s' "$$namespace_names" | jq -e 'index("demo.com") != null' >/dev/null; then
+        if [[ "$$namespaces" == *'"namespaces"'* && \
+              "$$namespaces" =~ '"name"'[[:space:]]*:[[:space:]]*'"demo.com"' ]]; then
           echo 'Federal namespace exists; setup will validate sample policy objects'
           exit 0
         fi

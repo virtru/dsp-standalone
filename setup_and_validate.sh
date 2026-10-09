@@ -432,7 +432,7 @@ keycloak_collection_names() {
     page="$(curl -fksSo - --max-time 10 -H "Authorization: Bearer $admin_token" \
       "https://local-dsp.virtru.com:18443/auth/admin/realms/opentdf/$endpoint?first=$first&max=100")" || return 2
     names="$(jq -er --arg field "$field" \
-      'if type == "array" then [.[].[$field] // empty] | join("\n") else error("invalid collection response") end' \
+      'if type == "array" then [.[][$field] // empty] | join("\n") else error("invalid collection response") end' \
       <<<"$page")" || return 2
     page_count="$(jq -er 'length' <<<"$page")" || return 2
     [[ -z "$names" ]] || printf '%s\n' "$names"
@@ -996,11 +996,17 @@ if [[ "$VALIDATE_ONLY" == false ]]; then
   sync_federal_policy_sample() {
     local federal_src="$BUNDLE_DIR/samples/defaults/federal.yaml"
     [[ -f "$federal_src" ]] || die "Bundle policy file not found: $federal_src"
-    if [[ -f "$FEDERAL_DST" ]] && cmp -s "$federal_src" "$FEDERAL_DST"; then
-      log_ok "sample.federal_policy.yaml matches the selected bundle"
-    else
+    if [[ ! -f "$FEDERAL_DST" ]]; then
       cp "$federal_src" "$FEDERAL_DST"
       log_ok "Copied $federal_src → $FEDERAL_DST"
+    elif cmp -s "$federal_src" "$FEDERAL_DST"; then
+      log_ok "sample.federal_policy.yaml matches the selected bundle"
+    else
+      log_warn "sample.federal_policy.yaml differs from the selected bundle; keeping local edits"
+      log_warn "Delete the local copy and rerun setup to use the bundle's policy"
+      if [[ "$NO_BUILD" == true ]]; then
+        log_warn "--no-build reuses an image that does not contain these local edits"
+      fi
     fi
   }
   sync_federal_policy_sample
@@ -1232,6 +1238,10 @@ print('Updated $DAEMON_JSON')
   # to start a container that would collide with its host port.
   REGISTRY_V2=$(curl -fsSL --max-time 3 http://localhost:5000/v2/ 2>/dev/null || true)
   if [[ "$REGISTRY_V2" == "{}" ]]; then
+    if [[ "$OS" == "darwin" && "$NO_BUILD" != true ]] \
+      && [[ -z "$(docker ps -q --filter publish=5000)" ]]; then
+      die "Port 5000 is served by a registry outside Docker context '$(docker context show)'.\nThe selected Docker daemon cannot use that host port to pull the DSP base image.\nSwitch to the runtime that owns the registry or stop it, then rerun setup."
+    fi
     log_ok "Docker registry already responding on port 5000"
   elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^registry$"; then
     log_warn "Registry container is running but port 5000 is unreachable — restarting it..."
