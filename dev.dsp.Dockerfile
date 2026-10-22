@@ -59,6 +59,7 @@ FROM ${DSP_IMAGE} AS dsp
 COPY --from=prep /work/dsp-keys/           /dsp-keys/
 COPY --from=prep /work/samples/            /samples/
 COPY --from=prep /work/dsp.yaml            /dsp.yaml
+COPY ./provision_dsp.sh                  /usr/local/bin/provision_dsp.sh
 
 # Provide CA bundle and point clients at it
 COPY --from=prep /work/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
