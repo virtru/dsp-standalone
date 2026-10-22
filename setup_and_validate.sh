@@ -23,8 +23,8 @@ set -euo pipefail
 # Fallback release values for legacy/default bundle directories whose names do
 # not include a release. A bundle selected with --bundle is authoritative: its
 # release is inferred from its name and its platform tag from its DSP CLI.
-readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.6.7"
-readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.7.15"
+readonly DEFAULT_DSP_BUNDLE_RELEASE="2.0.6.8"
+readonly DEFAULT_DSP_PLATFORM_IMAGE_TAG="v2.7.16"
 DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
 DSP_PLATFORM_IMAGE_TAG="$DEFAULT_DSP_PLATFORM_IMAGE_TAG"
 readonly INVOCATION_DIR="$PWD"
@@ -45,8 +45,8 @@ Options:
   -h, --help                Show this help
 
 Examples:
-  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
-  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
+  ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
   ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
 }
@@ -511,7 +511,7 @@ company_users_are_present() {
 }
 
 provision_company_namespace() {
-  local tructl_bin=""
+  local dsp_cli="${BUNDLE_DIR:-}/dsp"
   local kc_output=""
   local policy_output=""
   local token=""
@@ -522,10 +522,10 @@ provision_company_namespace() {
   [[ -f "$SCRIPT_DIR/sample.company_keycloak.yaml" ]] || die "Missing file: $SCRIPT_DIR/sample.company_keycloak.yaml"
   [[ -f "$SCRIPT_DIR/sample.company_policy.yaml" ]] || die "Missing file: $SCRIPT_DIR/sample.company_policy.yaml"
 
-  tructl_bin="$(find_tructl)" || die "Could not find tructl in an unpacked DSP bundle. Re-run setup with a local bundle available."
-  log_ok "Using tructl: $tructl_bin"
+  [[ -x "$dsp_cli" ]] || die "Could not find dsp in the selected bundle. Re-run setup with a local bundle available."
+  log_ok "Using DSP CLI: $dsp_cli"
 
-  kc_output="$("$tructl_bin" provision keycloak-from-config \
+  kc_output="$(DSP_CLI="$dsp_cli" sh "$SCRIPT_DIR/provision_dsp.sh" keycloak-from-config \
     -f "$SCRIPT_DIR/sample.company_keycloak.yaml" \
     -e https://local-dsp.virtru.com:18443/auth 2>&1)" || {
       echo "$kc_output" | while IFS= read -r line; do log_fail "  $line"; done
@@ -533,11 +533,10 @@ provision_company_namespace() {
     }
   log_ok "Company Keycloak users provisioned"
 
-  policy_output="$("$tructl_bin" \
+  policy_output="$(DSP_CLI="$dsp_cli" sh "$SCRIPT_DIR/provision_dsp.sh" policy \
     --host https://local-dsp.virtru.com:8080 \
     --tls-no-verify \
     --with-client-creds '{"clientId":"opentdf","clientSecret":"secret"}' \
-    provision policy \
     -n company.com \
     -f "$SCRIPT_DIR/sample.company_policy.yaml" 2>&1)" || {
       if echo "$policy_output" | grep -q "namespace company.com already exists: bad namespace"; then

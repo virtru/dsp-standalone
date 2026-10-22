@@ -151,7 +151,7 @@ fi
 # Go (Golang)
 # ------------------------------------------------------------
 echo "=== Installing Go (Golang) ==="
-GO_VERSION="1.25.13"
+GO_VERSION="1.26.10"
 if ! command -v go &> /dev/null; then
   GO_TAR="go${GO_VERSION}.linux-${HOST_ARCH}.tar.gz"
   wget -P /tmp "https://go.dev/dl/${GO_TAR}"
@@ -210,7 +210,7 @@ echo "=== Prerequisite Setup Complete! ==="
 echo ""
 echo "1. Run 'newgrp docker', or log out and back in, so Docker group membership takes effect."
 echo "2. Start the DSP stack with the supported bundle:"
-echo "   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.7.tar.gz"
+echo "   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz"
 echo ""
 echo "See README.md for the quick start and validation options."
 echo ""

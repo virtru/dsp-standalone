@@ -13,13 +13,27 @@ development, policy experiments, and integration testing without Kubernetes.
 Download a Virtru DSP bundle from
 [secure.virtru.com/download](https://secure.virtru.com/download). The setup
 script accepts a `.tar.gz` archive or an unpacked directory. It reads the bundle
-release from a name such as `virtru-dsp-bundle-2.0.6.7` and detects the platform
+release from a name such as `virtru-dsp-bundle-2.0.6.8` and detects the platform
 version from the bundled `dsp version` command. It then loads and verifies that
 exact platform image tag in the local registry and passes the image to Docker
 Compose. An older image already in the registry is not selected automatically.
 
+The default is bundle `2.0.6.8` (DSP `v2.7.16`). Bundle `2.0.6.7`
+(DSP `v2.7.15`) remains supported with the
+same setup command; pass the corresponding archive to `--bundle`.
+The provisioning helper checks each DSP executable for `dsp dev provision`
+and falls back to `dsp tructl provision` when the newer command is unavailable.
+This covers both Compose provisioners and the optional company namespace,
+including bundles whose host CLI and container expose different commands.
+Rebuild the Compose images when adopting this change; omit `--no-build`.
+
+The Go SDK examples require Go `1.26.10` or newer.
+
+Run the offline command-selection regression tests with
+`python3 -m unittest -v test_provision_dsp`.
+
 The legacy `virtru-dsp-bundle/` directory has no release in its name, so the
-script uses `2.0.6.7` as its display label. Its platform image tag still comes
+script uses `2.0.6.8` as its display label. Its platform image tag still comes
 from the bundled CLI. A differently named bundle also gets the fallback display
 label and a warning; its detected platform version remains authoritative.
 
@@ -62,7 +76,7 @@ directory. The release in this example is illustrative; use the path you receive
 
 ```bash
 cd dsp-standalone
-export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.7.tar.gz
+export BUNDLE=/path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
 ./setup_and_validate.sh --bundle "$BUNDLE"
 ```
 
@@ -546,7 +560,7 @@ BUNDLE_DIR=/path/from/setup-log
 Setup expects the local registry image tag to match that reported version with
 a leading `v`. It rejects failed CLI commands, missing or invalid versions,
 and a bundle that does not supply the matching image. Docker Compose's
-`v2.7.15` fallback applies only to manual Compose commands that do not set
+`v2.7.16` fallback applies only to manual Compose commands that do not set
 `DSP_IMAGE`; the setup script exports the detected image before invoking Compose.
 
 ### Port 5000 returns 403 on macOS
