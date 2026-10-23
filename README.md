@@ -223,7 +223,9 @@ Setup copies the license to `.generated/license.jwt` and, when `python3` is
 available, prints its subject and expiry. Compose mounts that copy into the DSP
 container at `/etc/virtru/license.jwt`. To replace a license, rerun setup (for
 example `./setup_and_validate.sh --validate-only --bundle "$BUNDLE" --license
-NEW.jwt`); the platform rereads the file within five minutes. Licenses are
+NEW.jwt`). When the staged license changes, setup restarts a running DSP so the
+new license is in effect before provisioning and validation; otherwise the
+platform would pick it up only on its five-minute poll. Licenses are
 signed by Virtru; a self-issued token is rejected. Bundles do not include a
 license: customers receive one from Virtru through their sales team, and
 partners receive one from the Virtru partner enablement team. Do not commit

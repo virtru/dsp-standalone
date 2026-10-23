@@ -129,7 +129,8 @@ done
 
 # Resolve a relative --license or DSP_LICENSE_FILE against the caller's
 # directory; the script changes to its own directory before staging.
-if [[ -n "$LICENSE_PATH" ]]; then
+# --sdk-only never stages a license, so a stale DSP_LICENSE_FILE must not stop it.
+if [[ -n "$LICENSE_PATH" && "$SDK_ONLY" != true ]]; then
   LICENSE_PATH="${LICENSE_PATH/#\~/$HOME}"
   if [[ "$LICENSE_PATH" != /* ]]; then
     LICENSE_PATH="$INVOCATION_DIR/$LICENSE_PATH"
@@ -159,6 +160,7 @@ fi
 
 PASS=0; FAIL=0
 TAGGING_PDP_WORKFLOW_CHANGED=false
+LICENSE_CHANGED=false
 check_pass() { log_ok "$1"; ((PASS++)) || true; }
 check_fail() { log_fail "$1"; ((FAIL++)) || true; }
 
@@ -546,19 +548,32 @@ stage_empty_license() {
   log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; no license staged"
 }
 
+# Set LICENSE_CHANGED when the staged license differs from what was staged
+# before this run. A running DSP reads the file only at startup and on a
+# 5-minute poll, so a change means DSP must restart before license-gated work.
+record_license_change() {
+  local previous="$1" current=""
+  [[ -f "$GENERATED_LICENSE" ]] && current="$(cat "$GENERATED_LICENSE")"
+  if [[ "$previous" != "$current" ]]; then
+    LICENSE_CHANGED=true
+  fi
+}
+
 # Stage the license for the DSP container at $GENERATED_LICENSE.
 stage_license() {
-  local source_path="" token=""
+  local source_path="" token="" previous=""
 
   source_path="$(resolve_license_source)"
   mkdir -p "$GENERATED_DIR"
   if [[ -d "$GENERATED_LICENSE" ]]; then
     die "$GENERATED_LICENSE is a directory, probably created by Docker when Compose started before setup.\nRemove it and retry: rmdir \"$GENERATED_LICENSE\""
   fi
+  [[ -f "$GENERATED_LICENSE" ]] && previous="$(cat "$GENERATED_LICENSE")"
 
   if [[ -z "$source_path" ]]; then
     platform_requires_license && die "$(license_missing_message)"
     stage_empty_license
+    record_license_change "$previous"
     return 0
   fi
 
@@ -570,6 +585,7 @@ stage_license() {
     fi
     log_warn "Ignoring $source_path: it is not a signed JWT, and this platform does not need a license"
     stage_empty_license
+    record_license_change "$previous"
     return 0
   fi
   printf '%s\n' "$token" >"$GENERATED_LICENSE"
@@ -579,6 +595,10 @@ stage_license() {
   describe_license "$GENERATED_LICENSE"
   if ! platform_requires_license; then
     log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; the license is mounted but unused"
+  fi
+  record_license_change "$previous"
+  if [[ "$LICENSE_CHANGED" == true ]]; then
+    log_info "The staged license changed; a running DSP will be restarted to load it"
   fi
 }
 
@@ -874,24 +894,37 @@ platform_supports_go_extract() {
 use_embedded_content_extractor() {
   local workflow="$1"
   local converted="$workflow.go-extract"
+  # Block-style YAML key with the value bare, single-quoted, or double-quoted,
+  # optionally followed by a comment. The rewrite keeps any trailing comment.
+  local q="[\"']?"
+  local tika_type_re="^[[:space:]]*-?[[:space:]]*type:[[:space:]]*${q}tika-content-extraction${q}[[:space:]]*(#.*)?$"
+  local tika_only_key_re="^[[:space:]]*(tikaServerUrl|tikaClientTimeout|tikaXmlConfigPath):"
+  local ocr_re="^[[:space:]]*ocr:[[:space:]]*${q}(true|false)${q}[[:space:]]*(#.*)?$"
+  # Flow-style entries such as {type: tika-content-extraction, ...} can't be
+  # rewritten line by line; stop with a clear message instead of leaving Tika.
+  local tika_flow_re="type:[[:space:]]*${q}tika-content-extraction${q}[[:space:]]*[,}]"
 
   if [[ "${DSP_CONTENT_EXTRACTOR:-auto}" == "bundle" ]]; then
     log_info "Keeping the bundle's content extractors (DSP_CONTENT_EXTRACTOR=bundle)"
     return 0
   fi
   platform_supports_go_extract || return 0
-  grep -Eq '^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?[[:space:]]*$' "$workflow" || return 0
+  if ! grep -Eq "$tika_type_re" "$workflow"; then
+    if grep -Eq "$tika_flow_re" "$workflow"; then
+      die "The tagging workflow uses a flow-style Tika extractor that setup can't switch to go-extract: $workflow\nRewrite it as a block-style list entry, or set DSP_CONTENT_EXTRACTOR=bundle and run a Tika server."
+    fi
+    return 0
+  fi
 
   sed -E \
-    -e '/^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?[[:space:]]*$/s/"?tika-content-extraction"?/"go-extract"/' \
-    -e '/^[[:space:]]*tikaServerUrl:/d' \
-    -e '/^[[:space:]]*tikaClientTimeout:/d' \
-    -e '/^[[:space:]]*ocr:[[:space:]]*(true|false)[[:space:]]*$/d' \
+    -e "/${tika_type_re}/s/${q}tika-content-extraction${q}/\"go-extract\"/" \
+    -e "/${tika_only_key_re}/d" \
+    -e "/${ocr_re}/d" \
     "$workflow" >"$converted"
-  if grep -Eq '^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?' "$converted" \
+  if grep -Eq "$tika_type_re" "$converted" || grep -Eq "$tika_flow_re" "$converted" \
     || ! grep -Eq 'type:[[:space:]]*"go-extract"' "$converted"; then
     rm -f "$converted"
-    die "Could not switch the tagging workflow to the embedded go-extract extractor: $workflow"
+    die "Could not switch the tagging workflow to the embedded go-extract extractor: $workflow\nSet DSP_CONTENT_EXTRACTOR=bundle to keep it, and run a Tika server at the tikaServerUrl in dsp.yaml."
   fi
   mv "$converted" "$workflow"
   log_info "Using the embedded go-extract content extractor (DSP platform $DSP_PLATFORM_IMAGE_TAG); no Tika server needed"
@@ -1603,20 +1636,23 @@ if [[ "$SDK_ONLY" == false ]]; then
   resolve_tagging_pdp_workflow_source "${BUNDLE_DIR:-}"
   stage_tagging_pdp_workflow "$TAGGING_PDP_WORKFLOW_SOURCE"
 
-  if [[ "$VALIDATE_ONLY" == true && "$TAGGING_PDP_WORKFLOW_CHANGED" == true ]]; then
+  if [[ "$VALIDATE_ONLY" == true && ( "$TAGGING_PDP_WORKFLOW_CHANGED" == true || "$LICENSE_CHANGED" == true ) ]]; then
     if docker compose ps dsp 2>/dev/null | grep -qiE "Up|running|healthy"; then
-      log_section "Restarting DSP to apply updated tagging workflow"
+      log_section "Restarting DSP to apply the updated tagging workflow or license"
       docker compose restart dsp
       log_info "Waiting for DSP /healthz after restart..."
+      DSP_RESTART_HEALTHY=false
       for _ in {1..18}; do
         if curl -fksSo /dev/null --max-time 5 https://local-dsp.virtru.com:8080/healthz 2>/dev/null; then
-          log_ok "DSP is healthy after tagging workflow restart"
+          DSP_RESTART_HEALTHY=true
+          log_ok "DSP is healthy after restart"
           break
         fi
         sleep 5
       done
+      [[ "$DSP_RESTART_HEALTHY" == true ]] || log_warn "DSP did not report healthy within 90s after restart; validation may fail. Check: docker compose logs dsp"
     else
-      log_warn "DSP is not currently running, so the updated tagging workflow was staged but not applied."
+      log_warn "DSP is not currently running, so the updated tagging workflow or license was staged but not applied."
     fi
   fi
 fi
@@ -1717,7 +1753,9 @@ open('dsp.yaml', 'w').write(content)
 
   # A newly created realm has new signing keys. Stop an existing DSP process so
   # it starts after provisioning and does not keep the previous realm's JWKS.
-  if [[ "$KEYCLOAK_REALM_EXISTS" == false ]]; then
+  # A changed license also needs a fresh start: DSP otherwise picks it up only
+  # on its 5-minute poll, after provisioning has already been blocked.
+  if [[ "$KEYCLOAK_REALM_EXISTS" == false || "$LICENSE_CHANGED" == true ]]; then
     docker compose stop dsp-provision-federal-policy dsp
   fi
 
