@@ -12,9 +12,11 @@ development, policy experiments, and integration testing without Kubernetes.
 
 Download a Virtru DSP bundle from
 [secure.virtru.com/download](https://secure.virtru.com/download). The setup
-script accepts a `.tar.gz` archive or an unpacked directory. It reads the bundle
-release from a name such as `virtru-dsp-bundle-2.0.6.8` and detects the platform
-version from the bundled `dsp version` command. It then loads and verifies that
+script accepts a `.tar.gz` archive or an unpacked directory of either the
+standard bundle or the quickstart bundle. It reads the bundle release from a
+name such as `virtru-dsp-bundle-2.0.6.8` or
+`virtru-dsp-quickstart-bundle-2.0.7.0` and detects the platform version from
+the bundled `dsp version` command. It then loads and verifies that
 exact platform image tag in the local registry and passes the image to Docker
 Compose. An older image already in the registry is not selected automatically.
 
@@ -36,6 +38,14 @@ The legacy `virtru-dsp-bundle/` directory has no release in its name, so the
 script uses `2.0.6.8` as its display label. Its platform image tag still comes
 from the bundled CLI. A differently named bundle also gets the fallback display
 label and a warning; its detected platform version remains authoritative.
+
+| Bundle line | Platform | Provisioning command | License | Content extraction for tagging |
+|---|---|---|---|---|
+| 2.0.6.x | v2.7.x | `dsp tructl provision` | Not enforced | Bundle workflow (Tika) |
+| 2.0.7.x | v2.8.x | `dsp dev provision` | Required (see [License](#license-bundle-207-and-later)) | Embedded `go-extract` (see [Content extraction](#content-extraction-bundle-207-and-later)) |
+
+The provisioning helper selects the command for each bundle, so the same
+checkout works with either line.
 
 ### Platform status
 
@@ -162,6 +172,7 @@ and should exit with status 0.
 | Option | Behavior |
 |---|---|
 | `--bundle PATH` | Use a bundle archive or unpacked directory; detect its platform version |
+| `--license PATH` | DSP license JWT; required for bundle 2.0.7 and later (see below) |
 | `--skip-prereqs` | Skip installation but still verify required tools |
 | `--no-build` | Reuse previously built Compose images |
 | `--validate-only` | Validate an already-running stack without starting it |
@@ -190,6 +201,61 @@ Go dependency/build caches and runtime artifacts such as `alex_test.tdf` are
 kept under the ignored `.generated/` directory. The SDK module itself is
 committed at the project root so repository CI and dependency tooling can
 inspect it directly.
+
+## License (bundle 2.0.7 and later)
+
+Platform v2.8 and later, shipped in bundle 2.0.7 and later, enforce a signed
+license. Without one the platform still starts and serves reads, access
+decisions, and key rewraps, but it rejects policy changes and tagging with
+`LICENSE_ENFORCED`. The sample policy cannot be provisioned in that state, so
+setup stops before installing prerequisites or loading images if it finds no
+license for these platforms.
+
+Setup uses the first license it finds:
+
+1. `--license /path/to/license.jwt`;
+2. the `DSP_LICENSE_FILE` environment variable;
+3. `license.jwt` at the root of the selected bundle (the quickstart bundle
+   includes one); or
+4. `license.jwt` in this directory.
+
+A relative `--license` path is resolved from the directory you run setup in.
+Setup copies the license to `.generated/license.jwt` and, when `python3` is
+available, prints its subject and expiry. Compose mounts that copy into the DSP
+container at `/etc/virtru/license.jwt`. To replace a license, rerun setup (for
+example `./setup_and_validate.sh --validate-only --bundle "$BUNDLE" --license
+NEW.jwt`); the platform rereads the file within five minutes. Licenses are
+signed by Virtru; a self-issued token is rejected. If you need one, ask your Virtru
+contact. Do not commit license files.
+
+Bundle 2.0.6.x does not enforce licensing. Setup stages an empty placeholder
+so the Compose mount stays valid; a license passed with `--license` is mounted
+but unused.
+
+## Content extraction (bundle 2.0.7 and later)
+
+The bundle's tagging workflow extracts text with an Apache Tika server, which
+this stack does not run. Platform v2.8 and later fail a tagging request when
+Tika is unreachable, so for these platforms setup switches the staged workflow
+(`.generated/tagging-pdp-workflows.yaml`) to `go-extract`, the content
+extractor built into the platform. No extra service is needed, and the rest of
+the workflow (tag rules, rollups, and assertions) is unchanged.
+
+Compared with the bundle's Tika extractor:
+
+- OCR is off. `go-extract` supports OCR through its `ocrEnabled` and
+  `ocrEngine` settings; add them to the staged workflow if you need it.
+- Email content is extracted as a single item. Recursive extraction of email
+  attachments is not yet implemented in `go-extract`.
+
+To keep the bundle's Tika extractors, for example when you run your own Tika at
+the `tikaServerUrl` in `dsp.yaml`, set `DSP_CONTENT_EXTRACTOR=bundle` before
+running setup. Bundle 2.0.6.x keeps the bundle workflow unchanged.
+
+The same extractor powers client-side extraction and tagging in bundle 2.0.7
+(`tructl extract` and supported clients). The validation in this repository
+tags through the platform's tagging service; integrations that tag at the
+endpoint avoid sending plaintext to a central service.
 
 ## Optional company policy
 
@@ -562,6 +628,20 @@ a leading `v`. It rejects failed CLI commands, missing or invalid versions,
 and a bundle that does not supply the matching image. Docker Compose's
 `v2.7.16` fallback applies only to manual Compose commands that do not set
 `DSP_IMAGE`; the setup script exports the detected image before invoking Compose.
+
+### `LICENSE_ENFORCED` or `license file not found`
+
+The platform found no valid license. Check the license lines in the setup
+output, then confirm what the container sees:
+
+```bash
+docker compose exec -T dsp ls -l /etc/virtru/license.jwt
+docker compose logs dsp | grep -i license
+```
+
+An empty file, an expired license past its grace period, or a token that
+Virtru did not sign all leave the platform enforcing. Rerun setup with
+`--license` pointing at a valid file.
 
 ### Port 5000 returns 403 on macOS
 

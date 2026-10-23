@@ -11,6 +11,7 @@
 # Usage:
 #   ./setup_and_validate.sh                              # full run: prereqs + infra checks + SDK validation
 #   ./setup_and_validate.sh --bundle /path/to/bundle     # use a supported bundle outside ./virtru-dsp-bundle
+#   ./setup_and_validate.sh --license /path/license.jwt  # DSP license (required for platform v2.8+ / bundle 2.0.7+)
 #   ./setup_and_validate.sh --add-namespace company      # also provision the sample company namespace + users
 #   ./setup_and_validate.sh --skip-prereqs               # skip tool installs, go straight to keys/stack
 #   ./setup_and_validate.sh --no-build                   # start stack using cached images (no --build)
@@ -37,6 +38,9 @@ Set up and validate the local Virtru DSP development stack.
 
 Options:
   --bundle PATH             DSP bundle directory or .tar.gz archive (version auto-detected)
+  --license PATH            DSP license JWT. Required for bundle 2.0.7 and later
+                            (platform v2.8+). Defaults to \$DSP_LICENSE_FILE, then
+                            license.jwt in the bundle, then ./license.jwt
   --add-namespace company   Provision and validate the optional company.com sample
   --skip-prereqs            Skip prerequisite installation; verify tools only
   --no-build                Reuse previously built Compose images
@@ -46,6 +50,8 @@ Options:
 
 Examples:
   ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-quickstart-bundle-2.0.7.0.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.7.0.tar.gz --license /path/to/license.jwt
   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
   ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
@@ -60,6 +66,7 @@ SDK_VALIDATION=true
 SDK_ONLY=false
 NO_BUILD=false
 BUNDLE_PATH=""
+LICENSE_PATH="${DSP_LICENSE_FILE:-}"
 ADD_NAMESPACES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,6 +92,22 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    --license)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "FATAL: --license requires a path to a DSP license JWT file" >&2
+        exit 1
+      fi
+      LICENSE_PATH="$2"
+      shift 2
+      ;;
+    --license=*)
+      LICENSE_PATH="${1#*=}"
+      if [[ -z "$LICENSE_PATH" ]]; then
+        echo "FATAL: --license requires a path to a DSP license JWT file" >&2
+        exit 1
+      fi
+      shift
+      ;;
     --add-namespace)
       if [[ $# -lt 2 ]]; then
         echo "FATAL: --add-namespace requires a value (supported: company)" >&2
@@ -103,6 +126,19 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Resolve a relative --license or DSP_LICENSE_FILE against the caller's
+# directory; the script changes to its own directory before staging.
+if [[ -n "$LICENSE_PATH" ]]; then
+  LICENSE_PATH="${LICENSE_PATH/#\~/$HOME}"
+  if [[ "$LICENSE_PATH" != /* ]]; then
+    LICENSE_PATH="$INVOCATION_DIR/$LICENSE_PATH"
+  fi
+  if [[ ! -f "$LICENSE_PATH" ]]; then
+    echo "FATAL: License file not found: $LICENSE_PATH" >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -302,6 +338,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 GENERATED_DIR="$SCRIPT_DIR/.generated"
 GENERATED_TAGGING_PDP_WORKFLOW="$GENERATED_DIR/tagging-pdp-workflows.yaml"
+# Mounted into the DSP container at /etc/virtru/license.jwt (see docker-compose.yaml).
+GENERATED_LICENSE="$GENERATED_DIR/license.jwt"
+GENERATED_BIN_DIR="$GENERATED_DIR/bin"
 log_ok "Working directory: $SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
@@ -393,6 +432,9 @@ find_tructl() {
     "$SCRIPT_DIR/virtru-dsp-bundle"/tools/dsp/*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tools/dsp/*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tools/dsp/*/tructl
+    "$GENERATED_BIN_DIR/tructl"
   )
   for candidate in "${candidates[@]}"; do
     if [[ -x "$candidate" ]]; then
@@ -409,6 +451,120 @@ find_tructl() {
   done < <(find "$SCRIPT_DIR" -type f -name tructl 2>/dev/null | sort)
 
   return 1
+}
+
+# Platform v2.8.0 and later (bundle 2.0.7+) are built with license enforcement.
+# Without a valid license the platform still serves reads, decisions, and
+# rewraps, but blocks policy writes and tagging, so sample provisioning fails.
+platform_requires_license() {
+  local version="${DSP_PLATFORM_IMAGE_TAG#v}"
+  local major="" minor=""
+  IFS=. read -r major minor _ <<<"$version"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 0
+  (( major > 2 || (major == 2 && minor >= 8) ))
+}
+
+# Bundles that ship only the `dsp` CLI still expose tructl as `dsp tructl`.
+# Give the tagging validation a tructl entry point from the selected bundle.
+ensure_tructl_for_bundle() {
+  local bundle_abs="" wrapper="$GENERATED_BIN_DIR/tructl"
+
+  if find_tructl >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! "$BUNDLE_DIR/dsp" tructl --help >/dev/null 2>&1; then
+    log_warn "The selected bundle has no tructl binary and its dsp CLI has no tructl command"
+    return 0
+  fi
+
+  bundle_abs="$(cd "$BUNDLE_DIR" && pwd)"
+  mkdir -p "$GENERATED_BIN_DIR"
+  printf '#!/usr/bin/env bash\n# Generated by setup_and_validate.sh for the selected DSP bundle.\nexec %q tructl "$@"\n' \
+    "$bundle_abs/dsp" >"$wrapper"
+  chmod +x "$wrapper"
+  TRUCTL="$wrapper"
+  export TRUCTL
+  log_ok "Using bundled CLI as tructl: $bundle_abs/dsp tructl"
+}
+
+# Print license claims for the operator, and warn when the license has expired.
+describe_license() {
+  local license_file="$1"
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$license_file" 2>/dev/null <<'PYEOF' || log_warn "Could not read the license claims; the platform validates the license at startup"
+import base64, datetime, json, sys
+token = open(sys.argv[1]).read().strip()
+payload = token.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+claims = json.loads(base64.urlsafe_b64decode(payload))
+exp = claims.get("exp")
+when = datetime.datetime.fromtimestamp(exp, datetime.timezone.utc) if isinstance(exp, (int, float)) else None
+print("    · License subject: %s; type: %s; expires: %s" % (
+    claims.get("sub", "unknown"), claims.get("type", claims.get("license_type", "unknown")),
+    when.strftime("%Y-%m-%d %H:%M UTC") if when else "unknown"))
+if when and when < datetime.datetime.now(datetime.timezone.utc):
+    print("    ⚠  This license has expired. DSP allows writes only during the license grace period.")
+PYEOF
+}
+
+# Print the license source. Order: --license, $DSP_LICENSE_FILE, license.jwt in
+# the selected bundle, then ./license.jwt. Prints nothing when none is found.
+resolve_license_source() {
+  # An explicit --license or DSP_LICENSE_FILE was checked after argument parsing.
+  if [[ -n "$LICENSE_PATH" ]]; then
+    printf '%s\n' "$LICENSE_PATH"
+  elif [[ -n "${BUNDLE_DIR:-}" && -f "$BUNDLE_DIR/license.jwt" ]]; then
+    printf '%s\n' "$BUNDLE_DIR/license.jwt"
+  elif [[ -f "$SCRIPT_DIR/license.jwt" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/license.jwt"
+  fi
+}
+
+license_missing_message() {
+  printf '%s' "DSP platform $DSP_PLATFORM_IMAGE_TAG requires a license file.\nThe DSP quickstart bundle includes license.jwt; otherwise ask your Virtru contact for one.\nPass it with --license /path/to/license.jwt (or set DSP_LICENSE_FILE) and retry."
+}
+
+# Older platforms have no license enforcement. Keep an empty file so the
+# Compose bind mount always resolves to a file rather than a directory.
+stage_empty_license() {
+  : >"$GENERATED_LICENSE"
+  log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; no license staged"
+}
+
+# Stage the license for the DSP container at $GENERATED_LICENSE.
+stage_license() {
+  local source_path="" token=""
+
+  source_path="$(resolve_license_source)"
+  mkdir -p "$GENERATED_DIR"
+  if [[ -d "$GENERATED_LICENSE" ]]; then
+    die "$GENERATED_LICENSE is a directory, probably created by Docker when Compose started before setup.\nRemove it and retry: rmdir \"$GENERATED_LICENSE\""
+  fi
+
+  if [[ -z "$source_path" ]]; then
+    platform_requires_license && die "$(license_missing_message)"
+    stage_empty_license
+    return 0
+  fi
+
+  [[ -r "$source_path" ]] || die "License file is not readable: $source_path"
+  token="$(tr -d '[:space:]' <"$source_path")"
+  if [[ ! "$token" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+    if platform_requires_license; then
+      die "License file is not a signed JWT: $source_path"
+    fi
+    log_warn "Ignoring $source_path: it is not a signed JWT, and this platform does not need a license"
+    stage_empty_license
+    return 0
+  fi
+  printf '%s\n' "$token" >"$GENERATED_LICENSE"
+  # The DSP container runs as a non-root user and reads the file through a bind mount.
+  chmod 0644 "$GENERATED_LICENSE"
+  log_ok "Staged DSP license from $source_path"
+  describe_license "$GENERATED_LICENSE"
+  if ! platform_requires_license; then
+    log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; the license is mounted but unused"
+  fi
 }
 
 get_service_account_token() {
@@ -685,6 +841,47 @@ merge_tagging_pdp_workflow() {
   ' "$base_raw" > "$output_path"
 }
 
+# Platform v2.8.0 and later (bundle 2.0.7+) include the embedded go-extract
+# content extractor. Earlier platforms only know tika-content-extraction.
+platform_supports_go_extract() {
+  local version="${DSP_PLATFORM_IMAGE_TAG#v}"
+  local major="" minor=""
+  IFS=. read -r major minor _ <<<"$version"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+  (( major > 2 || (major == 2 && minor >= 8) ))
+}
+
+# The bundle workflows extract content with an Apache Tika server, which this
+# stack does not run. On platforms with go-extract, switch every Tika extractor
+# to the embedded extractor and drop Tika-only keys. Set
+# DSP_CONTENT_EXTRACTOR=bundle to keep the bundle's extractors (for example,
+# when you run your own Tika at the tikaServerUrl in dsp.yaml).
+use_embedded_content_extractor() {
+  local workflow="$1"
+  local converted="$workflow.go-extract"
+
+  if [[ "${DSP_CONTENT_EXTRACTOR:-auto}" == "bundle" ]]; then
+    log_info "Keeping the bundle's content extractors (DSP_CONTENT_EXTRACTOR=bundle)"
+    return 0
+  fi
+  platform_supports_go_extract || return 0
+  grep -Eq '^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?[[:space:]]*$' "$workflow" || return 0
+
+  sed -E \
+    -e '/^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?[[:space:]]*$/s/"?tika-content-extraction"?/"go-extract"/' \
+    -e '/^[[:space:]]*tikaServerUrl:/d' \
+    -e '/^[[:space:]]*tikaClientTimeout:/d' \
+    -e '/^[[:space:]]*ocr:[[:space:]]*(true|false)[[:space:]]*$/d' \
+    "$workflow" >"$converted"
+  if grep -Eq '^[[:space:]]*-?[[:space:]]*type:[[:space:]]*"?tika-content-extraction"?' "$converted" \
+    || ! grep -Eq 'type:[[:space:]]*"go-extract"' "$converted"; then
+    rm -f "$converted"
+    die "Could not switch the tagging workflow to the embedded go-extract extractor: $workflow"
+  fi
+  mv "$converted" "$workflow"
+  log_info "Using the embedded go-extract content extractor (DSP platform $DSP_PLATFORM_IMAGE_TAG); no Tika server needed"
+}
+
 stage_tagging_pdp_workflow() {
   local source_path="$1"
   local company_overlay_path="$SCRIPT_DIR/config/company.tagging-pdp-workflows.yaml"
@@ -700,6 +897,7 @@ stage_tagging_pdp_workflow() {
       log_info "Extracted inner tagging PDP workflow from bundle wrapper format"
     fi
   fi
+  use_embedded_content_extractor "$staged_candidate"
 
   if [[ -f "$GENERATED_TAGGING_PDP_WORKFLOW" ]] && cmp -s "$staged_candidate" "$GENERATED_TAGGING_PDP_WORKFLOW"; then
     TAGGING_PDP_WORKFLOW_CHANGED=false
@@ -760,13 +958,15 @@ set_bundle_release_from_path() {
 
   bundle_name="$(basename "$bundle_path")"
   bundle_name="${bundle_name%.tar.gz}"
-  if [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
-    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
-  elif [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)$ ]]; then
-    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
+  # Both the standard and the quickstart bundle are accepted, for example
+  # virtru-dsp-bundle-2.0.6.8 and virtru-dsp-quickstart-bundle-2.0.7.0.
+  if [[ "$bundle_name" =~ ^virtru-dsp-(quickstart-)?bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[2]}"
+  elif [[ "$bundle_name" =~ ^virtru-dsp-(quickstart-)?bundle-(.+)$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[2]}"
   else
     DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
-    if [[ "$bundle_name" != "virtru-dsp-bundle" ]]; then
+    if [[ "$bundle_name" != "virtru-dsp-bundle" && "$bundle_name" != "virtru-dsp-quickstart-bundle" ]]; then
       log_warn "Could not infer the bundle release from '$bundle_name'; using $DSP_BUNDLE_RELEASE as its display label."
     fi
   fi
@@ -912,6 +1112,10 @@ select_bundle() {
 
 if [[ "$SDK_ONLY" == false ]]; then
   select_bundle
+  # Fail before prerequisites and the image load when a required license is missing.
+  if platform_requires_license && [[ -z "$(resolve_license_source)" ]]; then
+    die "$(license_missing_message)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -1365,6 +1569,15 @@ if [[ "$SDK_ONLY" == false && -z "${BUNDLE_DIR:-}" ]]; then
   if [[ ! -d "$BUNDLE_DIR" ]] || ! ensure_bundle_directory_ready "$BUNDLE_DIR"; then
     die "Virtru DSP bundle $DSP_BUNDLE_RELEASE is required for its $DSP_PLATFORM_IMAGE_TAG CLI and tagging configuration.\nUnpack the supported bundle at $BUNDLE_DIR or pass --bundle /path/to/bundle and retry."
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# Stage the license and a tructl entry point before start/validation
+# ---------------------------------------------------------------------------
+if [[ "$SDK_ONLY" == false ]]; then
+  log_section "DSP license and CLI"
+  ensure_tructl_for_bundle
+  stage_license
 fi
 
 # ---------------------------------------------------------------------------

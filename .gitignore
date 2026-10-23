@@ -1,7 +1,13 @@
 # Local DSP bundles and generated runtime state
 /virtru-dsp-bundle-*.tar.gz
 /virtru-dsp-bundle
+/virtru-dsp-quickstart-bundle-*.tar.gz
+/virtru-dsp-quickstart-bundle
 /.generated/
+
+# DSP license files (issued per customer or partner; never commit)
+/license.jwt
+*.license.jwt
 
 # Keys and other local credentials
 /dsp-keys/
