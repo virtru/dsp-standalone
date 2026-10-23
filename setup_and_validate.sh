@@ -1160,6 +1160,18 @@ select_bundle() {
 
 if [[ "$SDK_ONLY" == false ]]; then
   select_bundle
+  # Validation reuses the existing image. Reject a different bundle before
+  # replacing the license or workflow files mounted into the running stack.
+  if [[ "$VALIDATE_ONLY" == true ]]; then
+    if ! DSP_RUNNING_VERSION_OUTPUT=$(docker compose exec -T dsp /usr/bin/dsp version 2>&1); then
+      die "Could not verify the running DSP version; staged inputs were not changed.\nStart the stack with full setup before using --validate-only."
+    fi
+    DSP_RUNNING_VERSION=$(awk '$1 == "Version:" { print $2; exit }' <<<"$DSP_RUNNING_VERSION_OUTPUT")
+    DSP_RUNNING_VERSION="${DSP_RUNNING_VERSION#v}"
+    if [[ "$DSP_RUNNING_VERSION" != "${DSP_PLATFORM_IMAGE_TAG#v}" ]]; then
+      die "Running DSP version ${DSP_RUNNING_VERSION:-unknown} does not match the selected bundle's $DSP_PLATFORM_IMAGE_TAG; staged inputs were not changed.\nRun full setup without --validate-only or --no-build to rebuild for the selected bundle."
+    fi
+  fi
   # Fail before prerequisites and the image load when a required license is missing.
   if platform_requires_license && [[ -z "$(resolve_license_source)" ]]; then
     die "$(license_missing_message)"

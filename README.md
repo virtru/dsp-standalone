@@ -197,6 +197,11 @@ Common repeat commands:
   --bundle "$BUNDLE"
 ```
 
+`--validate-only` requires the running DSP version to match the selected bundle.
+A mismatch stops before changing staged licenses or workflows. To switch bundle
+versions, run full setup without `--validate-only` or `--no-build` so the image
+is rebuilt first.
+
 Go dependency/build caches and runtime artifacts such as `alex_test.tdf` are
 kept under the ignored `.generated/` directory. The SDK module itself is
 committed at the project root so repository CI and dependency tooling can
