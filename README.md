@@ -215,8 +215,7 @@ Setup uses the first license it finds:
 
 1. `--license /path/to/license.jwt`;
 2. the `DSP_LICENSE_FILE` environment variable;
-3. `license.jwt` at the root of the selected bundle (the quickstart bundle
-   includes one); or
+3. `license.jwt` at the root of the selected bundle, if you placed one there; or
 4. `license.jwt` in this directory.
 
 A relative `--license` path is resolved from the directory you run setup in.
@@ -225,8 +224,10 @@ available, prints its subject and expiry. Compose mounts that copy into the DSP
 container at `/etc/virtru/license.jwt`. To replace a license, rerun setup (for
 example `./setup_and_validate.sh --validate-only --bundle "$BUNDLE" --license
 NEW.jwt`); the platform rereads the file within five minutes. Licenses are
-signed by Virtru; a self-issued token is rejected. If you need one, ask your Virtru
-contact. Do not commit license files.
+signed by Virtru; a self-issued token is rejected. Bundles do not include a
+license: customers receive one from Virtru through their sales team, and
+partners receive one from the Virtru partner enablement team. Do not commit
+license files.
 
 Bundle 2.0.6.x does not enforce licensing. Setup stages an empty placeholder
 so the Compose mount stays valid; a license passed with `--license` is mounted

@@ -521,7 +521,7 @@ resolve_license_source() {
 }
 
 license_missing_message() {
-  printf '%s' "DSP platform $DSP_PLATFORM_IMAGE_TAG requires a license file.\nThe DSP quickstart bundle includes license.jwt; otherwise ask your Virtru contact for one.\nPass it with --license /path/to/license.jwt (or set DSP_LICENSE_FILE) and retry."
+  printf '%s' "DSP platform $DSP_PLATFORM_IMAGE_TAG requires a license file.\nCustomers receive one from Virtru through their sales team; partners receive one from the Virtru partner enablement team.\nPass it with --license /path/to/license.jwt (or set DSP_LICENSE_FILE) and retry."
 }
 
 # Older platforms have no license enforcement. Keep an empty file so the
