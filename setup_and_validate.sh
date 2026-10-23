@@ -1638,8 +1638,12 @@ if [[ "$SDK_ONLY" == false ]]; then
 
   if [[ "$VALIDATE_ONLY" == true && ( "$TAGGING_PDP_WORKFLOW_CHANGED" == true || "$LICENSE_CHANGED" == true ) ]]; then
     if docker compose ps dsp 2>/dev/null | grep -qiE "Up|running|healthy"; then
-      log_section "Restarting DSP to apply the updated tagging workflow or license"
-      docker compose restart dsp
+      log_section "Recreating DSP to apply the updated tagging workflow or license"
+      # Recreate rather than restart: a restart keeps the container's original
+      # mounts and environment, so a container created before the license mount
+      # existed would never see the license. --no-build keeps the image this
+      # stack already built for the selected bundle.
+      docker compose up -d --no-deps --no-build --force-recreate dsp
       log_info "Waiting for DSP /healthz after restart..."
       DSP_RESTART_HEALTHY=false
       for _ in {1..18}; do
@@ -1753,9 +1757,10 @@ open('dsp.yaml', 'w').write(content)
 
   # A newly created realm has new signing keys. Stop an existing DSP process so
   # it starts after provisioning and does not keep the previous realm's JWKS.
-  # A changed license also needs a fresh start: DSP otherwise picks it up only
-  # on its 5-minute poll, after provisioning has already been blocked.
-  if [[ "$KEYCLOAK_REALM_EXISTS" == false || "$LICENSE_CHANGED" == true ]]; then
+  # A changed license or tagging workflow also needs a fresh start: DSP reads
+  # the workflow only at startup and the license only at startup or on its
+  # 5-minute poll, which is too late for provisioning and validation.
+  if [[ "$KEYCLOAK_REALM_EXISTS" == false || "$LICENSE_CHANGED" == true || "$TAGGING_PDP_WORKFLOW_CHANGED" == true ]]; then
     docker compose stop dsp-provision-federal-policy dsp
   fi
 
