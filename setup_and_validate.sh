@@ -11,6 +11,7 @@
 # Usage:
 #   ./setup_and_validate.sh                              # full run: prereqs + infra checks + SDK validation
 #   ./setup_and_validate.sh --bundle /path/to/bundle     # use a supported bundle outside ./virtru-dsp-bundle
+#   ./setup_and_validate.sh --license /path/license.jwt  # DSP license (required for platform v2.8+ / bundle 2.0.7+)
 #   ./setup_and_validate.sh --add-namespace company      # also provision the sample company namespace + users
 #   ./setup_and_validate.sh --skip-prereqs               # skip tool installs, go straight to keys/stack
 #   ./setup_and_validate.sh --no-build                   # start stack using cached images (no --build)
@@ -37,6 +38,9 @@ Set up and validate the local Virtru DSP development stack.
 
 Options:
   --bundle PATH             DSP bundle directory or .tar.gz archive (version auto-detected)
+  --license PATH            DSP license JWT. Required for bundle 2.0.7 and later
+                            (platform v2.8+). Defaults to \$DSP_LICENSE_FILE, then
+                            license.jwt in the bundle, then ./license.jwt
   --add-namespace company   Provision and validate the optional company.com sample
   --skip-prereqs            Skip prerequisite installation; verify tools only
   --no-build                Reuse previously built Compose images
@@ -46,6 +50,8 @@ Options:
 
 Examples:
   ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-quickstart-bundle-2.0.7.0.tar.gz
+  ./setup_and_validate.sh --bundle /path/to/virtru-dsp-bundle-2.0.7.0.tar.gz --license /path/to/license.jwt
   ./setup_and_validate.sh --skip-prereqs --bundle /path/to/virtru-dsp-bundle-2.0.6.8.tar.gz
   ./setup_and_validate.sh --validate-only --bundle /path/to/unpacked-bundle
 EOF
@@ -60,6 +66,7 @@ SDK_VALIDATION=true
 SDK_ONLY=false
 NO_BUILD=false
 BUNDLE_PATH=""
+LICENSE_PATH="${DSP_LICENSE_FILE:-}"
 ADD_NAMESPACES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,6 +92,22 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    --license)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "FATAL: --license requires a path to a DSP license JWT file" >&2
+        exit 1
+      fi
+      LICENSE_PATH="$2"
+      shift 2
+      ;;
+    --license=*)
+      LICENSE_PATH="${1#*=}"
+      if [[ -z "$LICENSE_PATH" ]]; then
+        echo "FATAL: --license requires a path to a DSP license JWT file" >&2
+        exit 1
+      fi
+      shift
+      ;;
     --add-namespace)
       if [[ $# -lt 2 ]]; then
         echo "FATAL: --add-namespace requires a value (supported: company)" >&2
@@ -103,6 +126,20 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Resolve a relative --license or DSP_LICENSE_FILE against the caller's
+# directory; the script changes to its own directory before staging.
+# --sdk-only never stages a license, so a stale DSP_LICENSE_FILE must not stop it.
+if [[ -n "$LICENSE_PATH" && "$SDK_ONLY" != true ]]; then
+  LICENSE_PATH="${LICENSE_PATH/#\~/$HOME}"
+  if [[ "$LICENSE_PATH" != /* ]]; then
+    LICENSE_PATH="$INVOCATION_DIR/$LICENSE_PATH"
+  fi
+  if [[ ! -f "$LICENSE_PATH" ]]; then
+    echo "FATAL: License file not found: $LICENSE_PATH" >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -123,6 +160,7 @@ fi
 
 PASS=0; FAIL=0
 TAGGING_PDP_WORKFLOW_CHANGED=false
+LICENSE_CHANGED=false
 check_pass() { log_ok "$1"; ((PASS++)) || true; }
 check_fail() { log_fail "$1"; ((FAIL++)) || true; }
 
@@ -302,6 +340,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 GENERATED_DIR="$SCRIPT_DIR/.generated"
 GENERATED_TAGGING_PDP_WORKFLOW="$GENERATED_DIR/tagging-pdp-workflows.yaml"
+# Mounted into the DSP container at /etc/virtru/license.jwt (see docker-compose.yaml).
+GENERATED_LICENSE="$GENERATED_DIR/license.jwt"
+GENERATED_BIN_DIR="$GENERATED_DIR/bin"
 log_ok "Working directory: $SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
@@ -393,6 +434,9 @@ find_tructl() {
     "$SCRIPT_DIR/virtru-dsp-bundle"/tools/dsp/*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tools/dsp/*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tools/dsp/*/tructl
+    "$GENERATED_BIN_DIR/tructl"
   )
   for candidate in "${candidates[@]}"; do
     if [[ -x "$candidate" ]]; then
@@ -409,6 +453,153 @@ find_tructl() {
   done < <(find "$SCRIPT_DIR" -type f -name tructl 2>/dev/null | sort)
 
   return 1
+}
+
+# Platform v2.8.0 and later (bundle 2.0.7+) are built with license enforcement.
+# Without a valid license the platform still serves reads, decisions, and
+# rewraps, but blocks policy writes and tagging, so sample provisioning fails.
+platform_requires_license() {
+  local version="${DSP_PLATFORM_IMAGE_TAG#v}"
+  local major="" minor=""
+  IFS=. read -r major minor _ <<<"$version"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 0
+  (( major > 2 || (major == 2 && minor >= 8) ))
+}
+
+# Pin a tructl entry point to the selected bundle at .generated/bin/tructl.
+# It runs the bundle's own tructl binary, or `dsp tructl` for bundles that ship
+# only the dsp CLI. test_tagging.sh prefers this wrapper, so a later standalone
+# run uses the same CLI as setup even when an older bundle is still in the
+# checkout. Setup rewrites it on every run, so switching bundles refreshes it.
+ensure_tructl_for_bundle() {
+  local bundle_abs="" wrapper="$GENERATED_BIN_DIR/tructl" target="" candidate=""
+
+  bundle_abs="$(cd "$BUNDLE_DIR" && pwd)"
+  for candidate in "$bundle_abs/tructl" "$bundle_abs"/tools/dsp/*/tructl; do
+    if [[ -x "$candidate" ]]; then
+      target="$candidate"
+      break
+    fi
+  done
+
+  mkdir -p "$GENERATED_BIN_DIR"
+  if [[ -n "$target" ]]; then
+    printf '#!/usr/bin/env bash\n# Generated by setup_and_validate.sh for the selected DSP bundle.\nexec %q "$@"\n' \
+      "$target" >"$wrapper"
+  elif "$bundle_abs/dsp" tructl --help >/dev/null 2>&1; then
+    target="$bundle_abs/dsp tructl"
+    printf '#!/usr/bin/env bash\n# Generated by setup_and_validate.sh for the selected DSP bundle.\nexec %q tructl "$@"\n' \
+      "$bundle_abs/dsp" >"$wrapper"
+  else
+    rm -f "$wrapper"
+    log_warn "The selected bundle has no tructl binary and its dsp CLI has no tructl command"
+    return 0
+  fi
+  chmod +x "$wrapper"
+  # An explicit TRUCTL from the caller still wins.
+  if [[ -z "${TRUCTL:-}" ]]; then
+    TRUCTL="$wrapper"
+    export TRUCTL
+  fi
+  log_ok "tructl for this bundle: $target (via $wrapper)"
+}
+
+# Print license claims for the operator, and warn when the license has expired.
+describe_license() {
+  local license_file="$1"
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$license_file" 2>/dev/null <<'PYEOF' || log_warn "Could not read the license claims; the platform validates the license at startup"
+import base64, datetime, json, sys
+token = open(sys.argv[1]).read().strip()
+payload = token.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+claims = json.loads(base64.urlsafe_b64decode(payload))
+exp = claims.get("exp")
+when = datetime.datetime.fromtimestamp(exp, datetime.timezone.utc) if isinstance(exp, (int, float)) else None
+print("    · License subject: %s; type: %s; expires: %s" % (
+    claims.get("sub", "unknown"), claims.get("type", claims.get("license_type", "unknown")),
+    when.strftime("%Y-%m-%d %H:%M UTC") if when else "unknown"))
+if when and when < datetime.datetime.now(datetime.timezone.utc):
+    print("    ⚠  This license has expired. DSP allows writes only during the license grace period.")
+PYEOF
+}
+
+# Print the license source. Order: --license, $DSP_LICENSE_FILE, license.jwt in
+# the selected bundle, then ./license.jwt. Prints nothing when none is found.
+resolve_license_source() {
+  # An explicit --license or DSP_LICENSE_FILE was checked after argument parsing.
+  if [[ -n "$LICENSE_PATH" ]]; then
+    printf '%s\n' "$LICENSE_PATH"
+  elif [[ -n "${BUNDLE_DIR:-}" && -f "$BUNDLE_DIR/license.jwt" ]]; then
+    printf '%s\n' "$BUNDLE_DIR/license.jwt"
+  elif [[ -f "$SCRIPT_DIR/license.jwt" ]]; then
+    printf '%s\n' "$SCRIPT_DIR/license.jwt"
+  fi
+}
+
+license_missing_message() {
+  printf '%s' "DSP platform $DSP_PLATFORM_IMAGE_TAG requires a license file.\nCustomers receive one from Virtru through their sales team; partners receive one from the Virtru partner enablement team.\nPass it with --license /path/to/license.jwt (or set DSP_LICENSE_FILE) and retry."
+}
+
+# Older platforms have no license enforcement. Keep an empty file so the
+# Compose bind mount always resolves to a file rather than a directory.
+stage_empty_license() {
+  : >"$GENERATED_LICENSE"
+  log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; no license staged"
+}
+
+# Set LICENSE_CHANGED when the staged license differs from what was staged
+# before this run. A running DSP reads the file only at startup and on a
+# 5-minute poll, so a change means DSP must restart before license-gated work.
+record_license_change() {
+  local previous="$1" current=""
+  [[ -f "$GENERATED_LICENSE" ]] && current="$(cat "$GENERATED_LICENSE")"
+  if [[ "$previous" != "$current" ]]; then
+    LICENSE_CHANGED=true
+  fi
+}
+
+# Stage the license for the DSP container at $GENERATED_LICENSE.
+stage_license() {
+  local source_path="" token="" previous=""
+
+  source_path="$(resolve_license_source)"
+  mkdir -p "$GENERATED_DIR"
+  if [[ -d "$GENERATED_LICENSE" ]]; then
+    die "$GENERATED_LICENSE is a directory, probably created by Docker when Compose started before setup.\nRemove it and retry: rmdir \"$GENERATED_LICENSE\""
+  fi
+  [[ -f "$GENERATED_LICENSE" ]] && previous="$(cat "$GENERATED_LICENSE")"
+
+  if [[ -z "$source_path" ]]; then
+    platform_requires_license && die "$(license_missing_message)"
+    stage_empty_license
+    record_license_change "$previous"
+    return 0
+  fi
+
+  [[ -r "$source_path" ]] || die "License file is not readable: $source_path"
+  token="$(tr -d '[:space:]' <"$source_path")"
+  if [[ ! "$token" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+    if platform_requires_license; then
+      die "License file is not a signed JWT: $source_path"
+    fi
+    log_warn "Ignoring $source_path: it is not a signed JWT, and this platform does not need a license"
+    stage_empty_license
+    record_license_change "$previous"
+    return 0
+  fi
+  printf '%s\n' "$token" >"$GENERATED_LICENSE"
+  # The DSP container runs as a non-root user and reads the file through a bind mount.
+  chmod 0644 "$GENERATED_LICENSE"
+  log_ok "Staged DSP license from $source_path"
+  describe_license "$GENERATED_LICENSE"
+  if ! platform_requires_license; then
+    log_info "DSP platform $DSP_PLATFORM_IMAGE_TAG does not enforce licensing; the license is mounted but unused"
+  fi
+  record_license_change "$previous"
+  if [[ "$LICENSE_CHANGED" == true ]]; then
+    log_info "The staged license changed; a running DSP will be restarted to load it"
+  fi
 }
 
 get_service_account_token() {
@@ -685,6 +876,60 @@ merge_tagging_pdp_workflow() {
   ' "$base_raw" > "$output_path"
 }
 
+# Platform v2.8.0 and later (bundle 2.0.7+) include the embedded go-extract
+# content extractor. Earlier platforms only know tika-content-extraction.
+platform_supports_go_extract() {
+  local version="${DSP_PLATFORM_IMAGE_TAG#v}"
+  local major="" minor=""
+  IFS=. read -r major minor _ <<<"$version"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+  (( major > 2 || (major == 2 && minor >= 8) ))
+}
+
+# The bundle workflows extract content with an Apache Tika server, which this
+# stack does not run. On platforms with go-extract, switch every Tika extractor
+# to the embedded extractor and drop Tika-only keys. Set
+# DSP_CONTENT_EXTRACTOR=bundle to keep the bundle's extractors (for example,
+# when you run your own Tika at the tikaServerUrl in dsp.yaml).
+use_embedded_content_extractor() {
+  local workflow="$1"
+  local converted="$workflow.go-extract"
+  # Block-style YAML key with the value bare, single-quoted, or double-quoted,
+  # optionally followed by a comment. The rewrite keeps any trailing comment.
+  local q="[\"']?"
+  local tika_type_re="^[[:space:]]*-?[[:space:]]*type:[[:space:]]*${q}tika-content-extraction${q}[[:space:]]*(#.*)?$"
+  local tika_only_key_re="^[[:space:]]*(tikaServerUrl|tikaClientTimeout|tikaXmlConfigPath):"
+  local ocr_re="^[[:space:]]*ocr:[[:space:]]*${q}(true|false)${q}[[:space:]]*(#.*)?$"
+  # Flow-style entries such as {type: tika-content-extraction, ...} can't be
+  # rewritten line by line; stop with a clear message instead of leaving Tika.
+  local tika_flow_re="type:[[:space:]]*${q}tika-content-extraction${q}[[:space:]]*[,}]"
+
+  if [[ "${DSP_CONTENT_EXTRACTOR:-auto}" == "bundle" ]]; then
+    log_info "Keeping the bundle's content extractors (DSP_CONTENT_EXTRACTOR=bundle)"
+    return 0
+  fi
+  platform_supports_go_extract || return 0
+  if ! grep -Eq "$tika_type_re" "$workflow"; then
+    if grep -Eq "$tika_flow_re" "$workflow"; then
+      die "The tagging workflow uses a flow-style Tika extractor that setup can't switch to go-extract: $workflow\nRewrite it as a block-style list entry, or set DSP_CONTENT_EXTRACTOR=bundle and run a Tika server."
+    fi
+    return 0
+  fi
+
+  sed -E \
+    -e "/${tika_type_re}/s/${q}tika-content-extraction${q}/\"go-extract\"/" \
+    -e "/${tika_only_key_re}/d" \
+    -e "/${ocr_re}/d" \
+    "$workflow" >"$converted"
+  if grep -Eq "$tika_type_re" "$converted" || grep -Eq "$tika_flow_re" "$converted" \
+    || ! grep -Eq 'type:[[:space:]]*"go-extract"' "$converted"; then
+    rm -f "$converted"
+    die "Could not switch the tagging workflow to the embedded go-extract extractor: $workflow\nSet DSP_CONTENT_EXTRACTOR=bundle to keep it, and run a Tika server at the tikaServerUrl in dsp.yaml."
+  fi
+  mv "$converted" "$workflow"
+  log_info "Using the embedded go-extract content extractor (DSP platform $DSP_PLATFORM_IMAGE_TAG); no Tika server needed"
+}
+
 stage_tagging_pdp_workflow() {
   local source_path="$1"
   local company_overlay_path="$SCRIPT_DIR/config/company.tagging-pdp-workflows.yaml"
@@ -700,6 +945,7 @@ stage_tagging_pdp_workflow() {
       log_info "Extracted inner tagging PDP workflow from bundle wrapper format"
     fi
   fi
+  use_embedded_content_extractor "$staged_candidate"
 
   if [[ -f "$GENERATED_TAGGING_PDP_WORKFLOW" ]] && cmp -s "$staged_candidate" "$GENERATED_TAGGING_PDP_WORKFLOW"; then
     TAGGING_PDP_WORKFLOW_CHANGED=false
@@ -760,13 +1006,15 @@ set_bundle_release_from_path() {
 
   bundle_name="$(basename "$bundle_path")"
   bundle_name="${bundle_name%.tar.gz}"
-  if [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
-    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
-  elif [[ "$bundle_name" =~ ^virtru-dsp-bundle-(.+)$ ]]; then
-    DSP_BUNDLE_RELEASE="${BASH_REMATCH[1]}"
+  # Both the standard and the quickstart bundle are accepted, for example
+  # virtru-dsp-bundle-2.0.6.8 and virtru-dsp-quickstart-bundle-2.0.7.0.
+  if [[ "$bundle_name" =~ ^virtru-dsp-(quickstart-)?bundle-(.+)-[[:xdigit:]]{64}$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[2]}"
+  elif [[ "$bundle_name" =~ ^virtru-dsp-(quickstart-)?bundle-(.+)$ ]]; then
+    DSP_BUNDLE_RELEASE="${BASH_REMATCH[2]}"
   else
     DSP_BUNDLE_RELEASE="$DEFAULT_DSP_BUNDLE_RELEASE"
-    if [[ "$bundle_name" != "virtru-dsp-bundle" ]]; then
+    if [[ "$bundle_name" != "virtru-dsp-bundle" && "$bundle_name" != "virtru-dsp-quickstart-bundle" ]]; then
       log_warn "Could not infer the bundle release from '$bundle_name'; using $DSP_BUNDLE_RELEASE as its display label."
     fi
   fi
@@ -912,6 +1160,22 @@ select_bundle() {
 
 if [[ "$SDK_ONLY" == false ]]; then
   select_bundle
+  # Validation reuses the existing image. Reject a different bundle before
+  # replacing the license or workflow files mounted into the running stack.
+  if [[ "$VALIDATE_ONLY" == true ]]; then
+    if ! DSP_RUNNING_VERSION_OUTPUT=$(docker compose exec -T dsp /usr/bin/dsp version 2>&1); then
+      die "Could not verify the running DSP version; staged inputs were not changed.\nStart the stack with full setup before using --validate-only."
+    fi
+    DSP_RUNNING_VERSION=$(awk '$1 == "Version:" { print $2; exit }' <<<"$DSP_RUNNING_VERSION_OUTPUT")
+    DSP_RUNNING_VERSION="${DSP_RUNNING_VERSION#v}"
+    if [[ "$DSP_RUNNING_VERSION" != "${DSP_PLATFORM_IMAGE_TAG#v}" ]]; then
+      die "Running DSP version ${DSP_RUNNING_VERSION:-unknown} does not match the selected bundle's $DSP_PLATFORM_IMAGE_TAG; staged inputs were not changed.\nRun full setup without --validate-only or --no-build to rebuild for the selected bundle."
+    fi
+  fi
+  # Fail before prerequisites and the image load when a required license is missing.
+  if platform_requires_license && [[ -z "$(resolve_license_source)" ]]; then
+    die "$(license_missing_message)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -1368,6 +1632,15 @@ if [[ "$SDK_ONLY" == false && -z "${BUNDLE_DIR:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Stage the license and a tructl entry point before start/validation
+# ---------------------------------------------------------------------------
+if [[ "$SDK_ONLY" == false ]]; then
+  log_section "DSP license and CLI"
+  ensure_tructl_for_bundle
+  stage_license
+fi
+
+# ---------------------------------------------------------------------------
 # Resolve + stage tagging workflow before start/validation
 # ---------------------------------------------------------------------------
 if [[ "$SDK_ONLY" == false ]]; then
@@ -1375,20 +1648,27 @@ if [[ "$SDK_ONLY" == false ]]; then
   resolve_tagging_pdp_workflow_source "${BUNDLE_DIR:-}"
   stage_tagging_pdp_workflow "$TAGGING_PDP_WORKFLOW_SOURCE"
 
-  if [[ "$VALIDATE_ONLY" == true && "$TAGGING_PDP_WORKFLOW_CHANGED" == true ]]; then
+  if [[ "$VALIDATE_ONLY" == true && ( "$TAGGING_PDP_WORKFLOW_CHANGED" == true || "$LICENSE_CHANGED" == true ) ]]; then
     if docker compose ps dsp 2>/dev/null | grep -qiE "Up|running|healthy"; then
-      log_section "Restarting DSP to apply updated tagging workflow"
-      docker compose restart dsp
+      log_section "Recreating DSP to apply the updated tagging workflow or license"
+      # Recreate rather than restart: a restart keeps the container's original
+      # mounts and environment, so a container created before the license mount
+      # existed would never see the license. --no-build keeps the image this
+      # stack already built for the selected bundle.
+      docker compose up -d --no-deps --no-build --force-recreate dsp
       log_info "Waiting for DSP /healthz after restart..."
+      DSP_RESTART_HEALTHY=false
       for _ in {1..18}; do
         if curl -fksSo /dev/null --max-time 5 https://local-dsp.virtru.com:8080/healthz 2>/dev/null; then
-          log_ok "DSP is healthy after tagging workflow restart"
+          DSP_RESTART_HEALTHY=true
+          log_ok "DSP is healthy after restart"
           break
         fi
         sleep 5
       done
+      [[ "$DSP_RESTART_HEALTHY" == true ]] || log_warn "DSP did not report healthy within 90s after restart; validation may fail. Check: docker compose logs dsp"
     else
-      log_warn "DSP is not currently running, so the updated tagging workflow was staged but not applied."
+      log_warn "DSP is not currently running, so the updated tagging workflow or license was staged but not applied."
     fi
   fi
 fi
@@ -1489,7 +1769,10 @@ open('dsp.yaml', 'w').write(content)
 
   # A newly created realm has new signing keys. Stop an existing DSP process so
   # it starts after provisioning and does not keep the previous realm's JWKS.
-  if [[ "$KEYCLOAK_REALM_EXISTS" == false ]]; then
+  # A changed license or tagging workflow also needs a fresh start: DSP reads
+  # the workflow only at startup and the license only at startup or on its
+  # 5-minute poll, which is too late for provisioning and validation.
+  if [[ "$KEYCLOAK_REALM_EXISTS" == false || "$LICENSE_CHANGED" == true || "$TAGGING_PDP_WORKFLOW_CHANGED" == true ]]; then
     docker compose stop dsp-provision-federal-policy dsp
   fi
 

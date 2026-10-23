@@ -18,6 +18,9 @@
 #   3. DSP image is available in the local registry:
 #        docker run -d -p 5000:5000 --name registry registry:2
 #        ./dsp copy-images --insecure localhost:5000/virtru
+#   4. ./.generated/license.jwt exists. Setup stages it; it is empty for
+#      platforms without license enforcement (v2.7.x / bundle 2.0.6.x) and
+#      must hold a valid license for v2.8+ (bundle 2.0.7+).
 #
 # Usage:
 #   docker compose up --build
@@ -174,7 +177,10 @@ services:
     volumes:
       - ./dsp-keys:/dsp-keys:z
       - ./.generated/tagging-pdp-workflows.yaml:/config/tagging-pdp-workflows.yaml:ro,z
+      # Platform v2.8+ blocks policy writes and tagging without a valid license.
+      - ./.generated/license.jwt:/etc/virtru/license.jwt:ro,z
     environment:
+      LICENSE_FILE_PATH: /etc/virtru/license.jwt
       DSP_DB_HOST: localhost
       DSP_DB_PORT: 35433
       DSP_DB_USER: postgres

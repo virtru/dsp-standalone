@@ -87,11 +87,16 @@ find_tructl() {
     return 0
   fi
 
+  # Prefer the entry point setup pinned to the bundle it last used, so an older
+  # bundle left in the checkout can't supply an incompatible CLI.
   local candidates=(
+    "$SCRIPT_DIR/.generated/bin/tructl"
     "$SCRIPT_DIR/virtru-dsp-bundle/tructl"
     "$SCRIPT_DIR/virtru-dsp-bundle"/tools/dsp/*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tructl
     "$SCRIPT_DIR"/virtru-dsp-bundle-*/tools/dsp/*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tructl
+    "$SCRIPT_DIR"/virtru-dsp-quickstart-bundle*/tools/dsp/*/tructl
   )
   local candidate=""
   for candidate in "${candidates[@]}"; do
