@@ -1024,6 +1024,12 @@ registry_has_dsp_tag() {
   local tags_json="$1"
   local expected_tag="$2"
 
+  # An empty response (for example a 404 from an empty registry, which the
+  # caller turns into "") must count as "tag missing". jq 1.6, the version
+  # shipped with RHEL/Rocky 9, exits 0 under -e when given no input at all,
+  # which would wrongly report the image as present and skip `dsp copy-images`.
+  [[ -n "${tags_json//[[:space:]]/}" ]] || return 1
+
   jq -e --arg expected_tag "$expected_tag" \
     '(.tags // []) | index($expected_tag) != null' \
     <<<"$tags_json" >/dev/null 2>&1
